@@ -1,0 +1,97 @@
+name: Bygg Filmklipparen
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verktyg
+        run: |
+          sw_vers
+          xcrun swiftc --version
+          uname -m
+
+      - name: Bygg appen (Intel + Apple silicon, macOS 11+)
+        run: |
+          chmod +x build.sh
+          ./build.sh --no-install 2>&1 | tee build.log
+          test -f build/Filmklipparen.zip
+          grep -E "warning:|error:" build.log | sort -u | head -30 | while read -r l; do echo "::warning::$l"; done
+          lipo -info build/Filmklipparen.app/Contents/MacOS/Filmklipparen
+          otool -l build/Filmklipparen.app/Contents/MacOS/Filmklipparen | grep -A4 LC_BUILD_VERSION | head -8
+          ls build/Filmklipparen.app/Contents/Frameworks 2>/dev/null | while read -r l; do echo "::notice::medföljer $l"; done
+          otool -l build/Filmklipparen.app/Contents/MacOS/Filmklipparen | grep -B1 -A3 "LC_LOAD_WEAK_DYLIB\|LC_RPATH" | grep -E "cmd|name|path" | paste - - | while read -r l; do echo "::notice::$l"; done
+          otool -L build/Filmklipparen.app/Contents/MacOS/Filmklipparen | tail -n +2 | awk '{print $1}' | sort -u | while read -r l; do echo "::notice::länkar $l"; done
+
+      - name: Gör provklipp
+        run: |
+          which ffmpeg || brew install ffmpeg
+          mkdir -p test
+          # Liggande klipp med ljud
+          ffmpeg -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i sine=frequency=440:sample_rate=48000 \
+            -t 4 -c:v libx264 -pix_fmt yuv420p -c:a aac test/klipp1.mov
+          # Stående mobilklipp (roterat), utan ljud
+          ffmpeg -loglevel error -y -f lavfi -i smptebars=size=1920x1080:rate=30 -t 3 -c:v libx264 -pix_fmt yuv420p \
+            -metadata:s:v rotate=90 test/klipp2_raw.mp4
+          ffmpeg -loglevel error -y -display_rotation 90 -i test/klipp2_raw.mp4 -c copy test/klipp2.mp4 || cp test/klipp2_raw.mp4 test/klipp2.mp4
+          # Kort låt (ska upprepas)
+          ffmpeg -loglevel error -y -f lavfi -i sine=frequency=660:sample_rate=44100 -t 2 -c:a aac test/musik.m4a
+          # Stående stillbild och en kort ljudeffekt
+          ffmpeg -loglevel error -y -f lavfi -i testsrc=size=800x1000 -frames:v 1 test/bild.png
+          ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=1200:sample_rate=44100" -t 1.5 test/pling.wav
+          ls -la test
+
+      - name: Provkör export (bild, ljud, musik, text)
+        shell: bash
+        run: |
+          xcrun swiftc -O -swift-version 5 -parse-as-library -target "$(uname -m)-apple-macos11.0" \
+            Sources/Model.swift Sources/MovieBuilder.swift ci/ExportTest.swift -o build/ExportTest
+          set +e
+          build/ExportTest "$PWD/test/film.mp4" "$PWD/test/musik.m4a" "$PWD/test/bild.png" "$PWD/test/pling.wav" "$PWD/test/klipp1.mov" "$PWD/test/klipp2.mp4" > export.log 2>&1
+          rc=$?
+          set -e
+          cat export.log
+          while read -r l; do echo "::notice::$l"; done < export.log
+          exit $rc
+
+      - name: Starta appen och ta skärmbild
+        run: |
+          D="$HOME/Library/Application Support/Filmklipparen"
+          mkdir -p "$D"
+          cat > "$D/projekt.json" <<EOF
+          {"name":"Provfilm","musicVolume":0.5,"musicPath":"$PWD/test/musik.m4a","clips":[
+           {"id":"11111111-1111-1111-1111-111111111111","path":"$PWD/test/klipp1.mov","sourceDuration":4,"start":0,"end":4,"volume":1,"title":"Gammal text","titlePlace":"top"},
+           {"id":"22222222-2222-2222-2222-222222222222","path":"$PWD/test/klipp2.mp4","sourceDuration":3,"start":0,"end":3,"volume":0.5}],
+           "stills":[{"id":"33333333-3333-3333-3333-333333333333","path":"$PWD/test/bild.png","aspect":0.8,"start":0,"duration":5,"x":0.75,"y":0.5,"scale":0.55}],
+           "texts":[{"id":"44444444-4444-4444-4444-444444444444","text":"Hej!","font":"Chalkboard SE","bold":true,"size":0.1,"color":1,"x":0.3,"y":0.75,"start":4.2,"duration":2.5}],
+           "sounds":[{"id":"55555555-5555-5555-5555-555555555555","path":"$PWD/test/pling.wav","sourceDuration":1.5,"inPoint":0,"start":2,"duration":1.5,"volume":1}]}
+          EOF
+          open build/Filmklipparen.app
+          sleep 12
+          pgrep -x Filmklipparen || { echo "Appen kraschade"; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
+          screencapture -x test/skarmbild.png || echo "skärmbild gick inte"
+          pkill -x Filmklipparen || true
+          sleep 2
+          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'" "$D/projekt.json" | while read -r l; do echo "::notice::$l"; done
+
+      - name: Lägg appen och provresultat i grenen dist
+        if: always()
+        run: |
+          mkdir -p /tmp/dist/test
+          cp build/Filmklipparen.zip /tmp/dist/ || true
+          cp test/*.png /tmp/dist/test/ 2>/dev/null || true
+          cp build.log /tmp/dist/ 2>/dev/null || true
+          cd /tmp/dist
+          git init -q -b dist
+          git -c user.name="GitHub Actions" -c user.email="actions@github.com" add -A
+          git -c user.name="GitHub Actions" -c user.email="actions@github.com" commit -q -m "Bygge från ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" dist
