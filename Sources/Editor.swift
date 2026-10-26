@@ -135,7 +135,9 @@ final class Editor: ObservableObject, @unchecked Sendable {
             return
         }
         var cleaned = loaded.removingMissingFiles()
+        let beforeMigration = cleaned.project
         cleaned.project.migrateOldTitles()
+        let changed = cleaned.project != beforeMigration || cleaned.missing > 0
         player.pause()
         player.replaceCurrentItem(with: nil)
         builtKey = nil
@@ -152,8 +154,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
         scheduleRebuild()
         if cleaned.missing > 0 {
             show("\(cleaned.missing) fil(er) hittades inte längre och togs bort ur filmen")
-            scheduleSave()
         }
+        if changed { scheduleSave() }
     }
 
     /// Tillbaka till "Mina filmer". Filmen sparas först.

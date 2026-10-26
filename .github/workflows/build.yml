@@ -64,6 +64,7 @@ jobs:
           exit $rc
 
       - name: Starta appen och ta skärmbild
+        shell: bash
         run: |
           D="$HOME/Library/Application Support/Filmklipparen"
           mkdir -p "$D"
