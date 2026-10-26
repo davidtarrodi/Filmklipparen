@@ -20,10 +20,11 @@ var sin fil i `~/Library/Application Support/Filmklipparen/Filmer`.
 - **Film**: filmklippen efter varandra. Dra för att byta ordning, dra i kanterna för att korta.
   En liten bild längst till vänster på varje klipp följer med när man scrollar.
 
-**Tre ljudspår**: *Filmljud* (ljudet i filmklippen, nivå per klipp), *Musik* (en låt under hela
-filmen, upprepas och tonas ut) och *Ljudeffekter* (läggs där strecket står, dras och kortas fritt).
+**Tre ljudspår**: *Filmljud* (ljudet i filmklippen, nivå per klipp), *Musik* (låtar och jinglar)
+och *Ljudeffekter*. Musik och ljudeffekter läggs där det gula strecket står, dras fritt och kortas i
+kanterna; musiken tonas ut i slutet av varje bit. *Byt låt* byter den valda låten på samma ställe.
 
-Text, bild och ljudeffekter dras fritt i tiden och i kanterna; de fastnar mot strecket och mot
+Text, bild, musik och ljudeffekter dras fritt i tiden och i kanterna; de fastnar mot strecket och mot
 andra kanter. Inget får ligga omlott i samma spår. Fortsätter en bild eller text efter sista
 filmklippet blir det svart bakom. Äldre projekt med text på filmklippen flyttas automatiskt till textspåret.
 
