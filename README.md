@@ -21,6 +21,8 @@ Text, bild och ljudeffekter dras fritt i tiden och i kanterna; de fastnar mot st
 andra kanter. Inget får ligga omlott i samma spår. Fortsätter en bild eller text efter sista
 filmklippet blir det svart bakom. Äldre projekt med text på filmklippen flyttas automatiskt till textspåret.
 
+- **Baklänges**: välj ett filmklipp och tryck *Spela baklänges* till höger. Bild och ljud vänds
+  (en kopia sparas i appens mapp, så det går snabbt nästa gång). Ett tryck till gör det framlänges igen.
 - **Klipp här** (K) delar det valda (eller filmklippet) där strecket står.
 - **Ångra / Gör om** (⌘Z / ⇧⌘Z), många steg. Arbetet **sparas av sig självt**.
 - **Spara filmen**: en MP4 i 1080p i mappen *Filmer*, med bilder och texter inbrända.
