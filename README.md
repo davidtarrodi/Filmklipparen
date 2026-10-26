@@ -29,6 +29,9 @@ filmklippet blir det svart bakom. Äldre projekt med text på filmklippen flytta
 
 - **Baklänges**: välj ett filmklipp och tryck *Spela baklänges* till höger. Bild och ljud vänds
   (en kopia sparas i appens mapp, så det går snabbt nästa gång). Ett tryck till gör det framlänges igen.
+- **Ljud- och musikbläddrare**: knapparna *Ljudeffekt* och *Musik* öppnar ett bibliotek i sidopanelen
+  (mapparna *Filmer/Ljudeffekter* och *Filmer/Musik*, undermappar blir kategorier). Sök, klicka för
+  att lyssna, **+** för att lägga in. Mappen går att byta via ⋯.
 - **Klipp här** (K) delar det valda (eller filmklippet) där strecket står.
 - **Ångra / Gör om** (⌘Z / ⇧⌘Z), många steg. Arbetet **sparas av sig självt**.
 - **Spara filmen**: en MP4 i 1080p i mappen *Filmer*, med bilder och texter inbrända.
