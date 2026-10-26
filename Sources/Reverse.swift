@@ -33,7 +33,7 @@ enum ReverseRenderer {
         let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
         let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         var h: UInt64 = 0xcbf2_9ce4_8422_2325
-        for b in "\(source.path)|\(size)|\(Int(mtime))|v1".utf8 {
+        for b in "\(source.path)|\(size)|\(Int(mtime))|v2".utf8 {
             h ^= UInt64(b)
             h = h &* 0x0000_0100_0000_01b3
         }
@@ -86,44 +86,10 @@ enum ReverseRenderer {
         guard writer.canAdd(vin) else { throw ReverseError.failed("Kunde inte skriva bilden.") }
         writer.add(vin)
 
-        var ain: AVAssetWriterInput?
-        var audioFormat: CMAudioFormatDescription?
-        if reversedAudio != nil {
-            let a = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: audioRate,
-                AVNumberOfChannelsKey: 2,
-                AVEncoderBitRateKey: 160_000,
-            ])
-            a.expectsMediaDataInRealTime = false
-            if writer.canAdd(a) {
-                writer.add(a)
-                ain = a
-                audioFormat = makeAudioFormat()
-            }
-        }
-
         guard writer.startWriting() else {
             throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte börja skriva.")
         }
         writer.startSession(atSourceTime: .zero)
-
-        var audioDone = 0
-        func flushAudio(upTo seconds: Double) throws {
-            guard let a = ain, let fmt = audioFormat, let samples = reversedAudio else { return }
-            let target = min(samples.count / 2, max(0, Int(seconds * audioRate)))
-            while audioDone < target {
-                let n = min(8192, target - audioDone)
-                guard let sb = samples.withUnsafeBufferPointer({ buf -> CMSampleBuffer? in
-                    makeAudioBuffer(buf.baseAddress! + audioDone * 2, frames: n, start: audioDone, format: fmt)
-                }) else { throw ReverseError.failed("Kunde inte vända ljudet.") }
-                try waitUntilReady(a, writer)
-                if !a.append(sb) {
-                    throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte skriva ljudet.")
-                }
-                audioDone += n
-            }
-        }
 
         // Bilden: läs en bit i taget bakifrån, skriv bilderna i omvänd ordning.
         let bigFrames = natural.width * natural.height > 2_500_000
@@ -162,20 +128,16 @@ enum ReverseRenderer {
             for f in frames.reversed() {
                 let t = max(0, total - f.time - frameDur)
                 if t <= lastOut + 0.0001 { continue }
-                try waitUntilReady(vin, writer)
+                try waitUntilReady(vin, writer, what: "bild")
                 if !adaptor.append(f.buffer, withPresentationTime: cm(t)) {
                     throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte skriva bilden.")
                 }
                 lastOut = t
-                try flushAudio(upTo: t + frameDur)
             }
             progress(min(1, (total - segStart) / total))
             segEnd = segStart
         }
-        try flushAudio(upTo: total)
-
         vin.markAsFinished()
-        ain?.markAsFinished()
         writer.endSession(atSourceTime: cm(total))
         let done = DispatchSemaphore(value: 0)
         writer.finishWriting { done.signal() }
@@ -184,12 +146,63 @@ enum ReverseRenderer {
             try? FileManager.default.removeItem(at: tmp)
             throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte spara det vända klippet.")
         }
+        // Ljudet i en egen fil bredvid, så att bild och ljud inte behöver vänta på varandra.
+        let audioOut = audioURL(forReversed: out)
+        try? FileManager.default.removeItem(at: audioOut)
+        if let samples = reversedAudio {
+            try writeAudio(samples, to: audioOut)
+        }
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.moveItem(at: tmp, to: out)
         return out
     }
 
-    private static func waitUntilReady(_ input: AVAssetWriterInput, _ writer: AVAssetWriter) throws {
+    /// Ljudfilen som hör till en baklänges-kopia (finns inte om klippet saknar ljud).
+    static func audioURL(forReversed video: URL) -> URL {
+        video.deletingPathExtension().appendingPathExtension("m4a")
+    }
+
+    private static func writeAudio(_ samples: [Int16], to url: URL) throws {
+        let tmp = url.deletingPathExtension().appendingPathExtension("tmp.m4a")
+        try? FileManager.default.removeItem(at: tmp)
+        let writer = try AVAssetWriter(outputURL: tmp, fileType: .m4a)
+        let a = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: audioRate,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 160_000,
+        ])
+        a.expectsMediaDataInRealTime = false
+        guard writer.canAdd(a), let fmt = makeAudioFormat() else { throw ReverseError.failed("Kunde inte skriva ljudet.") }
+        writer.add(a)
+        guard writer.startWriting() else {
+            throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte skriva ljudet.")
+        }
+        writer.startSession(atSourceTime: .zero)
+        let frames = samples.count / 2
+        var done = 0
+        while done < frames {
+            let n = min(8192, frames - done)
+            guard let sb = samples.withUnsafeBufferPointer({ buf -> CMSampleBuffer? in
+                makeAudioBuffer(buf.baseAddress! + done * 2, frames: n, start: done, format: fmt)
+            }) else { throw ReverseError.failed("Kunde inte vända ljudet.") }
+            try waitUntilReady(a, writer, what: "ljud")
+            if !a.append(sb) {
+                throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte skriva ljudet.")
+            }
+            done += n
+        }
+        a.markAsFinished()
+        let sem = DispatchSemaphore(value: 0)
+        writer.finishWriting { sem.signal() }
+        sem.wait()
+        guard writer.status == .completed else {
+            throw ReverseError.failed(writer.error?.localizedDescription ?? "Kunde inte spara ljudet.")
+        }
+        try FileManager.default.moveItem(at: tmp, to: url)
+    }
+
+    private static func waitUntilReady(_ input: AVAssetWriterInput, _ writer: AVAssetWriter, what: String) throws {
         var waited = 0
         while !input.isReadyForMoreMediaData {
             if writer.status == .failed {
@@ -197,7 +210,7 @@ enum ReverseRenderer {
             }
             Thread.sleep(forTimeInterval: 0.002)
             waited += 1
-            if waited > 10_000 { throw ReverseError.failed("Skrivningen fastnade.") }
+            if waited > 10_000 { throw ReverseError.failed("Skrivningen fastnade (\(what)).") }
         }
     }
 

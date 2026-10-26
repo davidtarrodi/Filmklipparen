@@ -29,7 +29,7 @@ struct ExportTest {
             let rev = try ReverseRenderer.render(src, progress: { _ in })
             let a = AVURLAsset(url: rev)
             let v = a.tracks(withMediaType: .video).first
-            print("baklänges: \(String(format: "%.2f", a.duration.seconds)) s (original \(String(format: "%.2f", AVURLAsset(url: src).duration.seconds)) s), ljud \(a.tracks(withMediaType: .audio).count), storlek \(v.map { "\(Int($0.naturalSize.width))x\(Int($0.naturalSize.height))" } ?? "-"), tog \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+            print("baklänges: \(String(format: "%.2f", a.duration.seconds)) s (original \(String(format: "%.2f", AVURLAsset(url: src).duration.seconds)) s), ljudfil \(FileManager.default.fileExists(atPath: ReverseRenderer.audioURL(forReversed: rev).path)), storlek \(v.map { "\(Int($0.naturalSize.width))x\(Int($0.naturalSize.height))" } ?? "-"), tog \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
             p.clips[0].reversedPath = rev.path
             try? rev.path.write(to: out.deletingLastPathComponent().appendingPathComponent("baklanges.txt"),
                                 atomically: true, encoding: .utf8)

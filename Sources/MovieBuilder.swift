@@ -218,8 +218,19 @@ enum MovieBuilder {
             try attempt("Filmklippet \(clip.name)") { try vTrack.insertTimeRange(vRange, of: sv, at: cursor) }
             layer.setTransform(fitTransform(natural: sv.naturalSize, preferred: sv.preferredTransform, into: size),
                                at: cursor)
+            var audioSource = asset.tracks(withMediaType: .audio).first
+            if clip.isReversed {
+                // Baklänges ligger ljudet i en egen fil bredvid bilden.
+                let au = ReverseRenderer.audioURL(forReversed: clip.mediaURL)
+                audioSource = nil
+                if FileManager.default.fileExists(atPath: au.path) {
+                    let aa = AVURLAsset(url: au)
+                    keep.append(aa)
+                    audioSource = aa.tracks(withMediaType: .audio).first
+                }
+            }
             try attempt("Ljudet i \(clip.name)") {
-                try place(asset.tracks(withMediaType: .audio).first, range: vRange, into: aTrack, at: cursor)
+                try place(audioSource, range: vRange, into: aTrack, at: cursor)
             }
             clipAudio.setVolume(clip.volume, at: cursor)
             cursor = cursor + vRange.duration
