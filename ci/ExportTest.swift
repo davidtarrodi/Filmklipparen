@@ -15,7 +15,9 @@ struct ExportTest {
         let out = URL(fileURLWithPath: args[0])
         try? FileManager.default.removeItem(at: out)
         var p = Project()
-        p.musicPath = args[1]
+        let md = AVURLAsset(url: URL(fileURLWithPath: args[1])).duration.seconds
+        p.music.append(SoundItem(path: args[1], sourceDuration: md, start: 0, duration: md, volume: 0.5))
+        p.music.append(SoundItem(path: args[1], sourceDuration: md, inPoint: 0.5, start: 3.0, duration: md - 0.5, volume: 0.5))
         for path in args.dropFirst(4) {
             let d = AVURLAsset(url: URL(fileURLWithPath: path)).duration.seconds
             var c = Clip(path: path, sourceDuration: d, start: 0.5, end: d - 0.5)

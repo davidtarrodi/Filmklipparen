@@ -178,6 +178,13 @@ struct MediaBrowserView: View {
                 Spacer()
                 Button("Stäng") { ed.closeBrowser() }
             }
+            if kind == .music, let rid = ed.replacingMusic, let old = ed.project.music.first(where: { $0.id == rid }) {
+                Text("Välj en ny låt i stället för »\(old.name)«. Tryck på + vid den du vill ha.")
+                    .font(.callout)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Palette.music.opacity(0.3)))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundColor(.secondary)

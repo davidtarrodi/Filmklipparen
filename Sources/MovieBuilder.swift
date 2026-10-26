@@ -274,54 +274,42 @@ enum MovieBuilder {
             comp.removeTrack(aTrack)
         }
 
-        // Spår 2: musik, upprepas om låten är kortare än filmen, tonas ut på slutet.
-        let musicAsset = project.musicPath.map { AVURLAsset(url: URL(fileURLWithPath: $0)) }
-        if let ma = musicAsset { keep.append(ma) }
-        if let ms = musicAsset?.tracks(withMediaType: .audio).first,
-           ms.timeRange.duration.seconds > 0.5,
-           let mTrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let mRange = ms.timeRange
-            var at = CMTime.zero
-            while at < totalTime {
-                let len = CMTimeMinimum(mRange.duration, totalTime - at)
-                try attempt("Musiken") {
-                    try mTrack.insertTimeRange(CMTimeRange(start: mRange.start, duration: len), of: ms, at: at)
-                }
-                at = at + len
-            }
-            let mp = AVMutableAudioMixInputParameters(track: mTrack)
-            let v = project.musicVolume
-            let fade = cm(min(2.0, total / 4))
-            mp.setVolume(v, at: .zero)
-            mp.setVolumeRamp(fromStartVolume: v, toEndVolume: 0,
-                             timeRange: CMTimeRange(start: totalTime - fade, duration: fade))
-            params.append(mp)
-        }
-
-        // Spår 3: ljudeffekter.
-        let sounds = project.sounds.sorted { $0.start < $1.start }
-        if !sounds.isEmpty,
-           let sTrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-            let sp = AVMutableAudioMixInputParameters(track: sTrack)
+        // Ett fritt ljudspår (musik eller ljudeffekter): bitarna läggs där de står i tidslinjen.
+        func audioLane(_ items: [SoundItem], what: String, fadeOut: Double) throws {
+            let sorted = items.sorted { $0.start < $1.start }
+            guard !sorted.isEmpty,
+                  let track = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+            else { return }
+            let mix = AVMutableAudioMixInputParameters(track: track)
             var end = CMTime.zero
             var any = false
-            for s in sounds {
+            for s in sorted {
                 if isCancelled() { throw CancelledError() }
-                let sa = AVURLAsset(url: s.url)
-                keep.append(sa)
-                guard let src = sa.tracks(withMediaType: .audio).first else { continue }
+                let a = AVURLAsset(url: s.url)
+                keep.append(a)
+                guard let src = a.tracks(withMediaType: .audio).first else { continue }
                 let wanted = CMTimeRange(start: cm(s.inPoint), duration: cm(s.duration))
                 let r = wanted.intersection(src.timeRange)
                 if r.isEmpty || r.duration.seconds < 0.02 { continue }
                 let at = CMTimeMaximum(cm(s.start), end)
-                if at > end { sTrack.insertEmptyTimeRange(CMTimeRange(start: end, end: at)) }
-                try attempt("Ljudeffekten \(s.name)") { try sTrack.insertTimeRange(r, of: src, at: at) }
-                sp.setVolume(s.volume, at: at)
+                if at > end { track.insertEmptyTimeRange(CMTimeRange(start: end, end: at)) }
+                try attempt("\(what) \(s.name)") { try track.insertTimeRange(r, of: src, at: at) }
+                mix.setVolume(s.volume, at: at)
+                // Tona ut i slutet av varje bit, så att det inte låter tvärt.
+                let fade = min(fadeOut, r.duration.seconds / 3)
+                if fade > 0.05 {
+                    mix.setVolumeRamp(fromStartVolume: s.volume, toEndVolume: 0,
+                                      timeRange: CMTimeRange(start: at + r.duration - cm(fade), duration: cm(fade)))
+                }
                 end = at + r.duration
                 any = true
             }
-            if any { params.append(sp) } else { comp.removeTrack(sTrack) }
+            if any { params.append(mix) } else { comp.removeTrack(track) }
         }
+
+        // Spår 2: musik. Spår 3: ljudeffekter.
+        try audioLane(project.music, what: "Musiken", fadeOut: 1.0)
+        try audioLane(project.sounds, what: "Ljudeffekten", fadeOut: 0)
 
         let instruction = AVMutableVideoCompositionInstruction()
         instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)

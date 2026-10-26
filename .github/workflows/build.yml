@@ -99,7 +99,7 @@ jobs:
           screencapture -x test/skarmbild.png || echo "skärmbild gick inte"
           pkill -x Filmklipparen || true
           sleep 2
-          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('film', p['name'], 'texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'" "$F" | while read -r l; do echo "::notice::$l"; done
+          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('film', p['name'], 'texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'; assert len(p.get('music',[]))==1 and not p.get('musicPath'), 'gammal musik flyttades inte'; print('musik', p['music'][0]['start'], p['music'][0]['duration'])" "$F" | while read -r l; do echo "::notice::$l"; done
 
       - name: Lägg appen och provresultat i grenen dist
         if: always()

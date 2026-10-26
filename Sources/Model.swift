@@ -114,12 +114,11 @@ enum Selection: Equatable {
     case still(UUID)
     case text(UUID)
     case sound(UUID)
-    case music
+    case music(UUID)
 
     var id: UUID? {
         switch self {
-        case .clip(let i), .still(let i), .text(let i), .sound(let i): return i
-        case .music: return nil
+        case .clip(let i), .still(let i), .text(let i), .sound(let i), .music(let i): return i
         }
     }
 }
@@ -131,6 +130,9 @@ struct Project: Codable, Equatable {
     var stills: [StillItem] = []
     var texts: [TextItem] = []
     var sounds: [SoundItem] = []
+    /// Musikspåret: låtar och jinglar som läggs fritt i tiden, precis som ljudeffekterna.
+    var music: [SoundItem] = []
+    // Gammalt: en enda låt under hela filmen. Flyttas till musikspåret när filmen öppnas.
     var musicPath: String? = nil
     var musicVolume: Float = 0.5
 
@@ -144,6 +146,7 @@ struct Project: Codable, Equatable {
         stills = try c.decodeIfPresent([StillItem].self, forKey: .stills) ?? []
         texts = try c.decodeIfPresent([TextItem].self, forKey: .texts) ?? []
         sounds = try c.decodeIfPresent([SoundItem].self, forKey: .sounds) ?? []
+        music = try c.decodeIfPresent([SoundItem].self, forKey: .music) ?? []
         musicPath = try c.decodeIfPresent(String.self, forKey: .musicPath)
         musicVolume = try c.decodeIfPresent(Float.self, forKey: .musicVolume) ?? 0.5
     }
@@ -157,6 +160,7 @@ struct Project: Codable, Equatable {
         for s in stills { d = max(d, s.end) }
         for t in texts { d = max(d, t.end) }
         for s in sounds { d = max(d, s.end) }
+        for s in music { d = max(d, s.end) }
         return d
     }
 
@@ -213,7 +217,9 @@ struct Project: Codable, Equatable {
         }
         p.stills = stills.filter { fm.fileExists(atPath: $0.path) }
         p.sounds = sounds.filter { fm.fileExists(atPath: $0.path) }
+        p.music = music.filter { fm.fileExists(atPath: $0.path) }
         var missing = (clips.count - p.clips.count) + (stills.count - p.stills.count) + (sounds.count - p.sounds.count)
+            + (music.count - p.music.count)
         if let m = musicPath, !fm.fileExists(atPath: m) {
             p.musicPath = nil
             missing += 1
@@ -226,7 +232,8 @@ struct Project: Codable, Equatable {
         MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
-                 music: musicPath, musicVolume: musicVolume,
+                 music: music.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
+                                             duration: $0.duration, volume: $0.volume) },
                  duration: (duration * 30).rounded() / 30)
     }
 }
@@ -250,8 +257,7 @@ struct SoundKey: Equatable {
 struct MediaKey: Equatable {
     var clips: [ClipKey]
     var sounds: [SoundKey]
-    var music: String?
-    var musicVolume: Float
+    var music: [SoundKey]
     var duration: Double
 }
 

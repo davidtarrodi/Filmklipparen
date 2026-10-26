@@ -392,7 +392,7 @@ struct SoundLane: View {
                 TimedBlock(sel: .sound(s.id), start: s.start, duration: s.duration, height: TL.sound,
                            color: Palette.sound,
                            move: { ed.moveItem(\.sounds, s.id, to: $0) },
-                           resize: { ed.resizeSound(s.id, edge: $0, to: $1) }) {
+                           resize: { ed.resizeAudio(\.sounds, s.id, edge: $0, to: $1) }) {
                     HStack(spacing: 4) {
                         Image(systemName: s.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         Text(s.name).lineLimit(1)
@@ -577,23 +577,18 @@ struct MusicLane: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             LaneBackground(width: width, height: TL.music)
-            if let m = ed.project.musicPath, ed.project.duration > 0 {
-                let selected = ed.selection == .music
-                HStack(spacing: 6) {
-                    Image(systemName: "music.note")
-                    Text(URL(fileURLWithPath: m).deletingPathExtension().lastPathComponent).lineLimit(1)
-                    Spacer(minLength: 0)
+            ForEach(ed.project.music) { m in
+                TimedBlock(sel: .music(m.id), start: m.start, duration: m.duration, height: TL.music,
+                           color: Palette.music,
+                           move: { ed.moveItem(\.music, m.id, to: $0) },
+                           resize: { ed.resizeAudio(\.music, m.id, edge: $0, to: $1) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: m.volume == 0 ? "speaker.slash.fill" : "music.note")
+                        Text(m.name).lineLimit(1)
+                    }
+                    .font(.caption.bold())
+                    .foregroundColor(.white)
                 }
-                .font(.caption.bold())
-                .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .frame(width: max(20, CGFloat(ed.project.duration * ed.pixelsPerSecond)), height: TL.music,
-                       alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Palette.music.opacity(0.75)))
-                .overlay(RoundedRectangle(cornerRadius: 5)
-                    .stroke(selected ? Color.yellow : Color.clear, lineWidth: 2.5))
-                .contentShape(Rectangle())
-                .onTapGesture { ed.selection = .music }
             }
         }
         .frame(width: width, height: TL.music, alignment: .topLeading)

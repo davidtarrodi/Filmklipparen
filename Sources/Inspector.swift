@@ -82,8 +82,8 @@ struct SidePanel: View {
                     TextSettings(item: t)
                 } else if let s = ed.selectedSound {
                     SoundSettings(item: s)
-                } else if ed.selection == .music, ed.project.musicPath != nil {
-                    MusicSettings()
+                } else if let m = ed.selectedMusic {
+                    MusicSettings(item: m)
                 } else {
                     MovieSettings()
                 }
@@ -297,7 +297,7 @@ struct SoundSettings: View {
             Text("Dra effekten i tidslinjen dit den ska höras. Dra i kanterna för att korta den.")
                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Field("Ljudnivå") {
-                VolumeSlider(value: item.volume) { v in ed.updateSound(item.id) { $0.volume = max(0, min(1, v)) } }
+                VolumeSlider(value: item.volume) { v in ed.updateAudio(\.sounds, item.id) { $0.volume = max(0, min(1, v)) } }
             }
             DeleteButton(title: "Ta bort ljudeffekten")
         }
@@ -307,22 +307,21 @@ struct SoundSettings: View {
 
 struct MusicSettings: View {
     @EnvironmentObject var ed: Editor
+    let item: SoundItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             PanelHeader(kind: "MUSIK", color: Palette.music)
-            if let m = ed.project.musicPath {
-                Text(URL(fileURLWithPath: m).deletingPathExtension().lastPathComponent)
-                    .font(.title3.bold()).lineLimit(2)
-            }
-            Text("Musiken ligger under hela filmen, börjar om om den är för kort och tonas ut på slutet.")
+            Text(item.name).font(.title3.bold()).lineLimit(2)
+            Text("Längd \(formatTime(item.duration)) av \(formatTime(item.sourceDuration))").foregroundColor(.secondary)
+            Text("Dra låten i tidslinjen dit den ska höras. Dra i kanterna för att korta den. Den tonas ut på slutet.")
                 .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
             Field("Ljudnivå") {
-                VolumeSlider(value: ed.project.musicVolume) { ed.setMusicVolume($0) }
+                VolumeSlider(value: item.volume) { v in ed.updateAudio(\.music, item.id) { $0.volume = max(0, min(1, v)) } }
             }
             HStack {
-                Button { ed.toggleBrowser(.music) } label: { Label("Byt låt", systemImage: "music.note") }
-                Button { ed.removeMusic() } label: { Label("Ta bort", systemImage: "trash") }
+                Button { ed.replaceMusic(item.id) } label: { Label("Byt låt", systemImage: "arrow.triangle.2.circlepath") }
+                DeleteButton(title: "Ta bort")
             }
         }
         .controlSize(.large)
@@ -339,7 +338,7 @@ struct MovieSettings: View {
             Text(formatTime(p.duration)).font(.title2.bold())
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(p.clips.count) filmklipp · \(p.stills.count) bilder · \(p.texts.count) texter")
-                Text("\(p.sounds.count) ljudeffekter · \(p.musicPath == nil ? "ingen musik" : "musik")")
+                Text("\(p.sounds.count) ljudeffekter · \(p.music.count) musik")
             }
             .foregroundColor(.secondary)
 

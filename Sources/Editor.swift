@@ -23,6 +23,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
     @Published var pixelsPerSecond: Double = 40
     /// Ljud- eller musikbläddraren i sidopanelen, när den är öppen.
     @Published private(set) var browser: BrowserKind?
+    /// Låten som ska bytas när man väljer musik i bläddraren ("Byt låt").
+    @Published var replacingMusic: UUID?
     let soundLibrary = MediaLibrary(kind: .sounds)
     let musicLibrary = MediaLibrary(kind: .music)
     /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
@@ -142,6 +144,17 @@ final class Editor: ObservableObject, @unchecked Sendable {
         var cleaned = loaded.removingMissingFiles()
         let beforeMigration = cleaned.project
         cleaned.project.migrateOldTitles()
+        // Gammalt: en låt under hela filmen blir en bit i musikspåret.
+        if let m = cleaned.project.musicPath {
+            let d = AVURLAsset(url: URL(fileURLWithPath: m)).duration.seconds
+            if d.isFinite && d > 0.1 {
+                let total = cleaned.project.duration
+                cleaned.project.music.append(SoundItem(path: m, sourceDuration: d, start: 0,
+                                                       duration: total > 1 ? min(d, total) : d,
+                                                       volume: cleaned.project.musicVolume))
+            }
+            cleaned.project.musicPath = nil
+        }
         let changed = cleaned.project != beforeMigration || cleaned.missing > 0
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -216,6 +229,11 @@ final class Editor: ObservableObject, @unchecked Sendable {
     var selectedSound: SoundItem? {
         guard case .sound(let id)? = selection else { return nil }
         return project.sounds.first { $0.id == id }
+    }
+
+    var selectedMusic: SoundItem? {
+        guard case .music(let id)? = selection else { return nil }
+        return project.music.first { $0.id == id }
     }
 
     func show(_ text: String) {
@@ -389,7 +407,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             case .still(let id): exists = project.stills.contains { $0.id == id }
             case .text(let id): exists = project.texts.contains { $0.id == id }
             case .sound(let id): exists = project.sounds.contains { $0.id == id }
-            case .music: exists = project.musicPath != nil
+            case .music(let id): exists = project.music.contains { $0.id == id }
             }
             if !exists { selection = nil }
         }
@@ -412,6 +430,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         for x in project.stills where x.id != id { targets += [x.start, x.end] }
         for x in project.texts where x.id != id { targets += [x.start, x.end] }
         for x in project.sounds where x.id != id { targets += [x.start, x.end] }
+        for x in project.music where x.id != id { targets += [x.start, x.end] }
         guard let best = targets.min(by: { abs($0 - t) < abs($1 - t) }), abs(best - t) <= tolerance else { return t }
         return best
     }
@@ -428,7 +447,9 @@ final class Editor: ObservableObject, @unchecked Sendable {
         case .still(let id)?: if splitItem(\.stills, id, at: t) { return }
         case .text(let id)?: if splitItem(\.texts, id, at: t) { return }
         case .sound(let id)?:
-            if let i = project.sounds.firstIndex(where: { $0.id == id }), splitSound(i, at: t) { return }
+            if let i = project.sounds.firstIndex(where: { $0.id == id }), splitAudio(\.sounds, i, at: t) { return }
+        case .music(let id)?:
+            if let i = project.music.firstIndex(where: { $0.id == id }), splitAudio(\.music, i, at: t) { return }
         default: break
         }
         guard let i = project.clipIndex(at: t) else {
@@ -478,8 +499,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
         return true
     }
 
-    private func splitSound(_ i: Int, at t: Double) -> Bool {
-        let s = project.sounds[i]
+    private func splitAudio(_ kp: WritableKeyPath<Project, [SoundItem]>, _ i: Int, at t: Double) -> Bool {
+        let s = project[keyPath: kp][i]
         guard t > s.start + 0.1, t < s.end - 0.1 else { return false }
         var first = s
         first.duration = t - s.start
@@ -489,10 +510,10 @@ final class Editor: ObservableObject, @unchecked Sendable {
         second.inPoint = s.inPoint + (t - s.start)
         second.duration = s.end - t
         commit { p in
-            p.sounds[i] = first
-            p.sounds.insert(second, at: i + 1)
+            p[keyPath: kp][i] = first
+            p[keyPath: kp].insert(second, at: i + 1)
         }
-        selection = .sound(second.id)
+        selection = kp == \Project.music ? .music(second.id) : .sound(second.id)
         return true
     }
 
@@ -516,7 +537,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         case .still(let id)?: commit { $0.stills.removeAll { $0.id == id } }
         case .text(let id)?: commit { $0.texts.removeAll { $0.id == id } }
         case .sound(let id)?: commit { $0.sounds.removeAll { $0.id == id } }
-        case .music?: commit { $0.musicPath = nil }
+        case .music(let id)?: commit { $0.music.removeAll { $0.id == id } }
         case nil: return
         }
         selection = nil
@@ -661,10 +682,11 @@ final class Editor: ObservableObject, @unchecked Sendable {
         live { p in p[keyPath: kp][i] = item }
     }
 
-    func resizeSound(_ id: UUID, edge: Edge, to t: Double) {
-        guard let i = project.sounds.firstIndex(where: { $0.id == id }) else { return }
-        var s = project.sounds[i]
-        let b = Lane.bounds(of: s.start, end: s.end, others: others(project.sounds, except: id))
+    func resizeAudio(_ kp: WritableKeyPath<Project, [SoundItem]>, _ id: UUID, edge: Edge, to t: Double) {
+        let items = project[keyPath: kp]
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        var s = items[i]
+        let b = Lane.bounds(of: s.start, end: s.end, others: others(items, except: id))
         let v = snap(t, except: id)
         switch edge {
         case .left:
@@ -677,7 +699,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             let ne = max(min(v, b.max, s.start + (s.sourceDuration - s.inPoint)), s.start + 0.1)
             s.duration = ne - s.start
         }
-        live { p in p.sounds[i] = s }
+        live { p in p[keyPath: kp][i] = s }
     }
 
     // MARK: - Bilder och texter i rutan
@@ -696,10 +718,10 @@ final class Editor: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func updateSound(_ id: UUID, _ f: (inout SoundItem) -> Void) {
+    func updateAudio(_ kp: WritableKeyPath<Project, [SoundItem]>, _ id: UUID, _ f: (inout SoundItem) -> Void) {
         live { p in
-            guard let i = p.sounds.firstIndex(where: { $0.id == id }) else { return }
-            f(&p.sounds[i])
+            guard let i = p[keyPath: kp].firstIndex(where: { $0.id == id }) else { return }
+            f(&p[keyPath: kp][i])
         }
     }
 
@@ -715,15 +737,6 @@ final class Editor: ObservableObject, @unchecked Sendable {
     }
 
     // MARK: - Övrigt
-
-    func setMusicVolume(_ v: Float) {
-        live { $0.musicVolume = max(0, min(1, v)) }
-    }
-
-    func removeMusic() {
-        commit { $0.musicPath = nil }
-        if selection == .music { selection = nil }
-    }
 
     func rename(_ name: String) {
         live(coalesce: "name") { $0.name = name }
@@ -743,7 +756,16 @@ final class Editor: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// "Byt låt": öppna musikbläddraren; nästa låt man väljer ersätter den här.
+    func replaceMusic(_ id: UUID) {
+        replacingMusic = id
+        soundLibrary.stop()
+        musicLibrary.stop()
+        browser = .music
+    }
+
     func closeBrowser() {
+        replacingMusic = nil
         soundLibrary.stop()
         musicLibrary.stop()
         browser = nil
@@ -856,24 +878,32 @@ final class Editor: ObservableObject, @unchecked Sendable {
         seek(start + 0.01)
     }
 
+    /// En låt eller jingel i musikspåret, där det gula strecket står. Är "Byt låt" igång byts den valda låten.
     func addMusic(_ url: URL) {
+        addAudio([url], to: \.music)
+    }
+
+    /// Ljudeffekter där strecket står. Från dra-och-släpp hamnar långa ljud (över 30 s) i musikspåret.
+    func addSounds(_ urls: [URL], longBecomesMusic: Bool) {
+        if !longBecomesMusic {
+            addAudio(urls, to: \.sounds)
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let ok = !AVURLAsset(url: url).tracks(withMediaType: .audio).isEmpty
+            var long: [URL] = [], short: [URL] = []
+            for u in urls {
+                let d = AVURLAsset(url: u).duration.seconds
+                if d.isFinite && d > 30 { long.append(u) } else { short.append(u) }
+            }
             DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                if !ok {
-                    self.show("Det där gick inte att spela som musik")
-                    return
-                }
-                self.commit { $0.musicPath = url.path }
-                self.selection = .music
-                self.show("Musiken ligger under hela filmen och tonas ut på slutet")
+                if !short.isEmpty { self?.addAudio(short, to: \.sounds) }
+                if !long.isEmpty { self?.addAudio(long, to: \.music) }
             }
         }
     }
 
-    /// Ljudfiler. Från dra-och-släpp blir en lång låt (över 30 s) musik om det inte redan finns musik.
-    func addSounds(_ urls: [URL], longBecomesMusic: Bool) {
+    private func addAudio(_ urls: [URL], to kp: WritableKeyPath<Project, [SoundItem]>) {
+        let isMusic = kp == \Project.music
         let sorted = Editor.sortedByName(urls)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var found: [(url: URL, duration: Double)] = []
@@ -889,28 +919,45 @@ final class Editor: ObservableObject, @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                var effects = found
-                if longBecomesMusic, self.project.musicPath == nil,
-                   let i = effects.firstIndex(where: { $0.duration > 30 }) {
-                    self.addMusic(effects.remove(at: i).url)
-                }
-                if !effects.isEmpty {
-                    var cursor = self.time
-                    var firstID: UUID?
-                    self.commit { p in
-                        for f in effects {
-                            let len = min(f.duration, 600)
-                            let start = Lane.freeStart(desired: cursor, length: len,
-                                                       others: p.sounds.map { (start: $0.start, end: $0.end) })
-                            let s = SoundItem(path: f.url.path, sourceDuration: f.duration, start: start, duration: len)
-                            p.sounds.append(s)
-                            if firstID == nil { firstID = s.id }
-                            cursor = start + len
-                        }
-                    }
-                    if let id = firstID { self.selection = .sound(id) }
-                }
                 if bad > 0 { self.show("\(bad) fil(er) gick inte att spela som ljud") }
+                guard !found.isEmpty else { return }
+
+                // "Byt låt": den valda låten får ny fil men ligger kvar på samma ställe.
+                if isMusic, let rid = self.replacingMusic, let old = self.project.music.first(where: { $0.id == rid }) {
+                    let f = found[0]
+                    self.commit { p in
+                        guard let i = p.music.firstIndex(where: { $0.id == rid }) else { return }
+                        p.music[i].path = f.url.path
+                        p.music[i].sourceDuration = f.duration
+                        p.music[i].inPoint = 0
+                        p.music[i].duration = min(f.duration, old.duration)
+                    }
+                    self.replacingMusic = nil
+                    self.closeBrowser()
+                    self.selection = .music(rid)
+                    self.show("Låten är bytt")
+                    return
+                }
+
+                var cursor = self.time
+                var firstID: UUID?
+                let total = self.project.duration
+                self.commit { p in
+                    for f in found {
+                        var len = min(f.duration, 600)
+                        // Musik blir inte längre än filmen (annars blir det svart efter slutet).
+                        if isMusic, total - cursor > 1 { len = min(len, total - cursor) }
+                        let start = Lane.freeStart(desired: cursor, length: len,
+                                                   others: p[keyPath: kp].map { (start: $0.start, end: $0.end) })
+                        let s = SoundItem(path: f.url.path, sourceDuration: f.duration, start: start, duration: len,
+                                          volume: isMusic ? 0.6 : 1)
+                        p[keyPath: kp].append(s)
+                        if firstID == nil { firstID = s.id }
+                        cursor = start + len
+                    }
+                }
+                if let id = firstID { self.selection = isMusic ? .music(id) : .sound(id) }
+                if isMusic { self.show("Musiken ligger där det gula strecket står. Dra i kanterna för att korta.") }
             }
         }
     }
