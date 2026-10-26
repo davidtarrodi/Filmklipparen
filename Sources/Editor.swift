@@ -21,6 +21,10 @@ final class Editor: ObservableObject, @unchecked Sendable {
     @Published var thumbs: [String: NSImage] = [:]
     @Published var stillPreviews: [String: NSImage] = [:]
     @Published var pixelsPerSecond: Double = 40
+    /// Ljud- eller musikbläddraren i sidopanelen, när den är öppen.
+    @Published private(set) var browser: BrowserKind?
+    let soundLibrary = MediaLibrary(kind: .sounds)
+    let musicLibrary = MediaLibrary(kind: .music)
     /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
     @Published var reversing: [UUID: Double] = [:]
     /// Filmen som är öppen just nu. Ingen öppen film: startskärmen med "Mina filmer" visas.
@@ -96,6 +100,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         // Används av provbygget: öppna senaste filmen direkt.
         if UserDefaults.standard.bool(forKey: "OpenLatest"), let first = library.first {
             open(first.url)
+            if UserDefaults.standard.string(forKey: "OpenBrowser") == "sounds" { browser = .sounds }
         }
     }
 
@@ -160,6 +165,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     /// Tillbaka till "Mina filmer". Filmen sparas först.
     func closeFilm() {
+        closeBrowser()
         saveNow()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -250,6 +256,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     func togglePlay() {
         defocus()
+        soundLibrary.stop()
+        musicLibrary.stop()
         guard player.currentItem != nil else { return }
         if player.rate != 0 {
             player.pause()
@@ -290,6 +298,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     /// Klick på något i tidslinjen: välj det och flytta strecket dit man klickade.
     func click(_ sel: Selection?, atTimelineX x: Double) {
         defocus()
+        if sel != nil { closeBrowser() }
         selection = sel
         seek(x / pixelsPerSecond)
     }
@@ -718,6 +727,26 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     func rename(_ name: String) {
         live(coalesce: "name") { $0.name = name }
+    }
+
+    // MARK: - Bläddra bland ljud och musik
+
+    /// Knapparna Musik och Ljudeffekt: öppna (eller stäng) bläddraren i sidopanelen.
+    func toggleBrowser(_ kind: BrowserKind) {
+        defocus()
+        if browser == kind {
+            closeBrowser()
+        } else {
+            soundLibrary.stop()
+            musicLibrary.stop()
+            browser = kind
+        }
+    }
+
+    func closeBrowser() {
+        soundLibrary.stop()
+        musicLibrary.stop()
+        browser = nil
     }
 
     // MARK: - Lägga till

@@ -85,9 +85,9 @@ struct TopBar: View {
                 .help("Lägg till bilder i bildspåret, ovanpå filmen")
             Button { ed.addText() } label: { Label("Text", systemImage: "textformat") }
                 .help("Lägg till en text i textspåret, överst")
-            Button { ed.chooseMusic() } label: { Label("Musik", systemImage: "music.note") }
+            Button { ed.toggleBrowser(.music) } label: { Label("Musik", systemImage: "music.note") }
                 .help("En låt under hela filmen")
-            Button { ed.chooseSoundEffects() } label: { Label("Ljudeffekt", systemImage: "speaker.wave.2") }
+            Button { ed.toggleBrowser(.sounds) } label: { Label("Ljudeffekt", systemImage: "speaker.wave.2") }
                 .help("Lägg till ljudeffekter där det gula strecket står")
             Divider().frame(height: 22)
             Button { ed.undo() } label: { Image(systemName: "arrow.uturn.backward") }

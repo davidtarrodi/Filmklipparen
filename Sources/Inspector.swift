@@ -63,6 +63,15 @@ struct SidePanel: View {
     @EnvironmentObject var ed: Editor
 
     var body: some View {
+        if let kind = ed.browser {
+            MediaBrowserView(lib: kind == .sounds ? ed.soundLibrary : ed.musicLibrary)
+                .id(kind == .sounds ? "sounds" : "music")
+        } else {
+            settings
+        }
+    }
+
+    private var settings: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let c = ed.selectedClip {
@@ -312,7 +321,7 @@ struct MusicSettings: View {
                 VolumeSlider(value: ed.project.musicVolume) { ed.setMusicVolume($0) }
             }
             HStack {
-                Button { ed.chooseMusic() } label: { Label("Byt låt", systemImage: "music.note") }
+                Button { ed.toggleBrowser(.music) } label: { Label("Byt låt", systemImage: "music.note") }
                 Button { ed.removeMusic() } label: { Label("Ta bort", systemImage: "trash") }
             }
         }

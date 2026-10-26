@@ -48,6 +48,12 @@ jobs:
           # Stående stillbild och en kort ljudeffekt
           ffmpeg -loglevel error -y -f lavfi -i testsrc=size=800x1000 -frames:v 1 test/bild.png
           ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=1200:sample_rate=44100" -t 1.5 test/pling.wav
+          # Ett litet ljudbibliotek till ljudbläddraren
+          mkdir -p test/lib/funny test/lib/cartoon
+          for n in "Boing hit sound" "Sad game over trombone" "Cartoon laugh voice"; do
+            ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=500:sample_rate=44100" -t 1.2 "test/lib/funny/$n.wav"; done
+          for n in "Cartoon falling whistle" "Funny squeaky toy hits"; do
+            ffmpeg -loglevel error -y -f lavfi -i "sine=frequency=800:sample_rate=44100" -t 0.8 "test/lib/cartoon/$n.wav"; done
           ls -la test
 
       - name: Provkör export (bild, ljud, musik, text)
@@ -87,7 +93,7 @@ jobs:
           test -f "$D/projekt-gammal.json"
           F=$(ls "$D"/Filmer/*.json | head -n 1)
           # 2) Öppna filmen direkt och ta en bild av redigeringen
-          open build/Filmklipparen.app --args -OpenLatest YES
+          open build/Filmklipparen.app --args -OpenLatest YES -OpenBrowser sounds -soundFolder "$PWD/test/lib"
           sleep 12
           pgrep -x Filmklipparen || { echo "Appen kraschade"; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
           screencapture -x test/skarmbild.png || echo "skärmbild gick inte"
