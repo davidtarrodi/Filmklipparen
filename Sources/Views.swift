@@ -9,6 +9,19 @@ struct ContentView: View {
     @EnvironmentObject var ed: Editor
 
     var body: some View {
+        Group {
+            if ed.currentFile == nil {
+                StartView()
+                    .overlay(ToastView(bottomPadding: 30), alignment: .bottom)
+                    .preferredColorScheme(.dark)
+                    .navigationTitle("Filmklipparen")
+            } else {
+                editor
+            }
+        }
+    }
+
+    private var editor: some View {
         VStack(spacing: 0) {
             TopBar()
             Divider()
@@ -85,8 +98,8 @@ struct TopBar: View {
                 .disabled(!ed.canRedo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .help("Gör om (⇧⌘Z)")
-            Button { ed.newProject() } label: { Label("Ny", systemImage: "doc.badge.plus") }
-                .help("Börja på en ny film")
+            Button { ed.closeFilm() } label: { Label("Mina filmer", systemImage: "square.grid.2x2") }
+                .help("Tillbaka till alla filmer (den här sparas)")
             Divider().frame(height: 22)
             Button { ed.exportMovie() } label: {
                 Label("Spara filmen", systemImage: "square.and.arrow.up")
@@ -181,6 +194,7 @@ struct Transport: View {
 
 struct ToastView: View {
     @EnvironmentObject var ed: Editor
+    var bottomPadding: CGFloat = TL.panelHeight + 20
 
     var body: some View {
         Group {
@@ -191,7 +205,7 @@ struct ToastView: View {
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                     .background(Capsule().fill(Color.black.opacity(0.85)))
-                    .padding(.bottom, TL.panelHeight + 20)
+                    .padding(.bottom, bottomPadding)
             }
         }
         .allowsHitTesting(false)

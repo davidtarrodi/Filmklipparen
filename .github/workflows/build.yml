@@ -75,13 +75,24 @@ jobs:
            "texts":[{"id":"44444444-4444-4444-4444-444444444444","text":"Hej!","font":"Chalkboard SE","bold":true,"size":0.1,"color":1,"x":0.3,"y":0.75,"start":4.2,"duration":2.5}],
            "sounds":[{"id":"55555555-5555-5555-5555-555555555555","path":"$PWD/test/pling.wav","sourceDuration":1.5,"inPoint":0,"start":2,"duration":1.5,"volume":1}]}
           EOF
+          # 1) Start: gamla projektet ska flyttas in i "Mina filmer"
           open build/Filmklipparen.app
+          sleep 10
+          pgrep -x Filmklipparen || { echo "Appen kraschade"; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
+          screencapture -x test/skarmbild-start.png || echo "skärmbild gick inte"
+          pkill -x Filmklipparen || true
+          sleep 2
+          ls "$D" "$D/Filmer"
+          test -f "$D/projekt-gammal.json"
+          F=$(ls "$D"/Filmer/*.json | head -n 1)
+          # 2) Öppna filmen direkt och ta en bild av redigeringen
+          open build/Filmklipparen.app --args -OpenLatest YES
           sleep 12
           pgrep -x Filmklipparen || { echo "Appen kraschade"; ls ~/Library/Logs/DiagnosticReports || true; exit 1; }
           screencapture -x test/skarmbild.png || echo "skärmbild gick inte"
           pkill -x Filmklipparen || true
           sleep 2
-          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'" "$D/projekt.json" | while read -r l; do echo "::notice::$l"; done
+          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('film', p['name'], 'texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'" "$F" | while read -r l; do echo "::notice::$l"; done
 
       - name: Lägg appen och provresultat i grenen dist
         if: always()

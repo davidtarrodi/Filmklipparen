@@ -23,6 +23,10 @@ final class Editor: ObservableObject, @unchecked Sendable {
     @Published var pixelsPerSecond: Double = 40
     /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
     @Published var reversing: [UUID: Double] = [:]
+    /// Filmen som är öppen just nu. Ingen öppen film: startskärmen med "Mina filmer" visas.
+    @Published private(set) var currentFile: URL?
+    @Published private(set) var library: [FilmInfo] = []
+    @Published var libraryThumbs: [URL: NSImage] = [:]
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
 
@@ -59,13 +63,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     private var wasPlayingBeforeScrub = false
 
     init() {
-        var missing = 0
-        if let saved = Editor.loadSaved() {
-            var cleaned = saved.removingMissingFiles()
-            cleaned.project.migrateOldTitles()
-            project = cleaned.project
-            missing = cleaned.missing
-        }
+        FilmLibrary.migrateOldProject()
 
         player.actionAtItemEnd = .pause
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30),
@@ -94,14 +92,100 @@ final class Editor: ObservableObject, @unchecked Sendable {
             self?.saveNow()
         }
 
-        scheduleRebuild()
-        scheduleSave()
-        if missing > 0 {
-            let n = missing
-            DispatchQueue.main.async { [weak self] in
-                self?.show("\(n) fil(er) hittades inte längre och togs bort ur filmen")
+        refreshLibrary()
+        // Används av provbygget: öppna senaste filmen direkt.
+        if UserDefaults.standard.bool(forKey: "OpenLatest"), let first = library.first {
+            open(first.url)
+        }
+    }
+
+    // MARK: - Mina filmer
+
+    func refreshLibrary() {
+        library = FilmLibrary.list()
+        for info in library {
+            DispatchQueue.global(qos: .utility).async {
+                let img = FilmLibrary.thumbnail(info)
+                DispatchQueue.main.async { [weak self] in
+                    if let img = img { self?.libraryThumbs[info.url] = img } else { self?.libraryThumbs[info.url] = nil }
+                }
             }
         }
+    }
+
+    /// Ny film med ett namn. Den sparas direkt och öppnas.
+    func createFilm(named name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var p = Project()
+        p.name = clean.isEmpty ? "Min film" : clean
+        let url = FilmLibrary.newURL()
+        do {
+            try FilmLibrary.save(p, to: url)
+        } catch {
+            show("Det gick inte att skapa filmen: \(error.localizedDescription)")
+            return
+        }
+        open(url)
+    }
+
+    func open(_ url: URL) {
+        guard let loaded = FilmLibrary.load(url) else {
+            show("Det gick inte att öppna filmen")
+            refreshLibrary()
+            return
+        }
+        var cleaned = loaded.removingMissingFiles()
+        cleaned.project.migrateOldTitles()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        builtKey = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
+        liveStart = nil
+        lastCoalesce = nil
+        updateUndoFlags()
+        selection = nil
+        project = cleaned.project
+        currentFile = url
+        time = 0
+        pixelsPerSecond = 40
+        scheduleRebuild()
+        if cleaned.missing > 0 {
+            show("\(cleaned.missing) fil(er) hittades inte längre och togs bort ur filmen")
+            scheduleSave()
+        }
+    }
+
+    /// Tillbaka till "Mina filmer". Filmen sparas först.
+    func closeFilm() {
+        saveNow()
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        selection = nil
+        currentFile = nil
+        undoStack.removeAll()
+        redoStack.removeAll()
+        updateUndoFlags()
+        refreshLibrary()
+    }
+
+    func renameFilm(_ info: FilmInfo, to name: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        FilmLibrary.rename(info, to: clean)
+        refreshLibrary()
+    }
+
+    func duplicateFilm(_ info: FilmInfo) {
+        FilmLibrary.duplicate(info)
+        refreshLibrary()
+    }
+
+    func deleteFilm(_ info: FilmInfo) {
+        FilmLibrary.delete(info)
+        libraryThumbs[info.url] = nil
+        refreshLibrary()
+        show("\(info.name) ligger i papperskorgen om du ångrar dig")
     }
 
     // MARK: - Det som syns
@@ -137,7 +221,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     // MARK: - Tangenter
 
     private func handleKey(_ e: NSEvent) -> Bool {
-        if exportProgress != nil { return false }
+        if exportProgress != nil || currentFile == nil { return false }
         if e.window?.firstResponder is NSText { return false } // någon skriver i en textruta
         if !e.modifierFlags.intersection([.command, .control, .option]).isEmpty { return false }
         let big = e.modifierFlags.contains(.shift)
@@ -634,14 +718,6 @@ final class Editor: ObservableObject, @unchecked Sendable {
         live(coalesce: "name") { $0.name = name }
     }
 
-    func newProject() {
-        player.pause()
-        commit { $0 = Project() }
-        selection = nil
-        seek(0)
-        show("En ny tom film. Ångra om du ångrar dig!")
-    }
-
     // MARK: - Lägga till
 
     private func openPanel(_ title: String, types: [UTType], multiple: Bool) -> [URL] {
@@ -1038,18 +1114,6 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     // MARK: - Spara arbetet automatiskt
 
-    static var saveURL: URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Filmklipparen", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("projekt.json")
-    }
-
-    static func loadSaved() -> Project? {
-        guard let data = try? Data(contentsOf: saveURL) else { return nil }
-        return try? JSONDecoder().decode(Project.self, from: data)
-    }
-
     private func scheduleSave() {
         saveWork?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.saveNow() }
@@ -1059,10 +1123,9 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     func saveNow() {
         saveWork?.cancel()
+        guard let url = currentFile else { return }
         do {
-            let enc = JSONEncoder()
-            enc.outputFormatting = [.prettyPrinted]
-            try enc.encode(project).write(to: Editor.saveURL, options: .atomic)
+            try FilmLibrary.save(project, to: url)
         } catch {
             NSLog("Filmklipparen: kunde inte spara projektet: \(error)")
         }
