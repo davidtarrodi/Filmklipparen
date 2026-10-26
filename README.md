@@ -6,6 +6,12 @@ extra bibliotek, ingen Homebrew. H.264 spelas och sparas med datorns hårdvara.
 
 ## Det här kan den
 
+**Mina filmer**: när appen startar visas alla filmer man gjort, med en liten bild och när den
+ändrades. Klicka för att öppna. *Ny film* frågar först vad filmen ska heta, sedan sparas den av sig
+själv. Via ⋯ eller högerklick: byt namn, gör en kopia, ta bort (hamnar i papperskorgen).
+Knappen *Mina filmer* i redigeringen tar en tillbaka (filmen sparas först). Filmerna ligger som
+var sin fil i `~/Library/Application Support/Filmklipparen/Filmer`.
+
 **Tre videospår** (det översta ligger ovanpå):
 - **Text**: knappen *Text* lägger en text där det gula strecket står. Skriv, välj typsnitt, fet stil,
   storlek och färg till höger. Dra texten dit du vill i bilden, dra i det gula hörnet för storlek.
