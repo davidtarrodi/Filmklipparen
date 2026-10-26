@@ -208,6 +208,8 @@ struct EdgeHandle: View {
     let height: CGFloat
     let origin: () -> Double
     let change: (Double) -> Void
+    /// Baklänges-klipp: att dra åt höger ger ett mindre värde i originalfilmen.
+    var invert = false
     @State private var start: Double?
 
     var body: some View {
@@ -225,7 +227,8 @@ struct EdgeHandle: View {
                             ed.liveEditing(true)
                         }
                         guard let s = start else { return }
-                        change(s + Double(v.translation.width) / ed.pixelsPerSecond)
+                        let delta = Double(v.translation.width) / ed.pixelsPerSecond
+                        change(s + (invert ? -delta : delta))
                     }
                     .onEnded { _ in
                         start = nil
@@ -473,11 +476,20 @@ struct ClipBlock: View {
         )
         .overlay(
             HStack(spacing: 0) {
-                EdgeHandle(edge: .left, height: TL.film, origin: { clip.start },
-                           change: { ed.setClipStart(clip.id, $0) })
-                Spacer(minLength: 0)
-                EdgeHandle(edge: .right, height: TL.film, origin: { clip.end },
-                           change: { ed.setClipEnd(clip.id, $0) })
+                if clip.isReversed {
+                    // Baklänges: vänsterkanten är slutet av originalfilmen.
+                    EdgeHandle(edge: .left, height: TL.film, origin: { clip.end },
+                               change: { ed.setClipEnd(clip.id, $0) }, invert: true)
+                    Spacer(minLength: 0)
+                    EdgeHandle(edge: .right, height: TL.film, origin: { clip.start },
+                               change: { ed.setClipStart(clip.id, $0) }, invert: true)
+                } else {
+                    EdgeHandle(edge: .left, height: TL.film, origin: { clip.start },
+                               change: { ed.setClipStart(clip.id, $0) })
+                    Spacer(minLength: 0)
+                    EdgeHandle(edge: .right, height: TL.film, origin: { clip.end },
+                               change: { ed.setClipEnd(clip.id, $0) })
+                }
             }
             .opacity(w >= 30 && dragX == 0 ? 1 : 0)
             .allowsHitTesting(w >= 30 && dragX == 0)
@@ -505,7 +517,14 @@ struct ClipBlock: View {
             .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.black.opacity(0.5), lineWidth: 1))
             VStack(alignment: .leading, spacing: 2) {
                 Text(clip.name).lineLimit(1)
-                Text(formatTime(clip.length)).foregroundColor(.white.opacity(0.75))
+                HStack(spacing: 4) {
+                    if clip.isReversed { Image(systemName: "backward.fill") }
+                    Text(formatTime(clip.length))
+                }
+                .foregroundColor(.white.opacity(0.8))
+                if let f = ed.reversing[clip.id] {
+                    ProgressView(value: f).frame(width: 70)
+                }
             }
             .font(.caption.bold())
             .foregroundColor(.white)

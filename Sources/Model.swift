@@ -19,6 +19,8 @@ struct Clip: Identifiable, Codable, Equatable {
     var start: Double
     var end: Double
     var volume: Float = 1
+    /// Baklänges-kopian av filmen, om klippet ska spelas baklänges.
+    var reversedPath: String? = nil
     // Gammalt: flyttas till textspåret när projektet öppnas.
     var title: String? = nil
     var titlePlace: TitlePlace? = nil
@@ -26,6 +28,9 @@ struct Clip: Identifiable, Codable, Equatable {
     var length: Double { max(0, end - start) }
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { url.deletingPathExtension().lastPathComponent }
+    var isReversed: Bool { reversedPath != nil }
+    /// Filen som faktiskt spelas (baklänges-kopian när klippet är vänt).
+    var mediaURL: URL { URL(fileURLWithPath: reversedPath ?? path) }
 }
 
 /// Något som ligger fritt i tiden i ett spår (bild, text eller ljudeffekt).
@@ -203,6 +208,9 @@ struct Project: Codable, Equatable {
         var p = self
         let fm = FileManager.default
         p.clips = clips.filter { fm.fileExists(atPath: $0.path) }
+        for i in p.clips.indices {
+            if let r = p.clips[i].reversedPath, !fm.fileExists(atPath: r) { p.clips[i].reversedPath = nil }
+        }
         p.stills = stills.filter { fm.fileExists(atPath: $0.path) }
         p.sounds = sounds.filter { fm.fileExists(atPath: $0.path) }
         var missing = (clips.count - p.clips.count) + (stills.count - p.stills.count) + (sounds.count - p.sounds.count)
@@ -215,7 +223,7 @@ struct Project: Codable, Equatable {
 
     /// Det som kräver att förhandsvisningen byggs om (bilder och texter ritas ovanpå direkt).
     var mediaKey: MediaKey {
-        MediaKey(clips: clips.map { ClipKey(path: $0.path, start: $0.start, end: $0.end, volume: $0.volume) },
+        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
                  music: musicPath, musicVolume: musicVolume,
@@ -225,6 +233,7 @@ struct Project: Codable, Equatable {
 
 struct ClipKey: Equatable {
     var path: String
+    var reversed: String?
     var start: Double
     var end: Double
     var volume: Float

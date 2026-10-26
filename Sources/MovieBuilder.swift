@@ -203,10 +203,15 @@ enum MovieBuilder {
         // Spår 1: filmklippen efter varandra.
         for clip in project.clips where clip.length > 0.05 {
             if isCancelled() { throw CancelledError() }
-            let asset = AVURLAsset(url: clip.url)
+            let asset = AVURLAsset(url: clip.mediaURL)
             keep.append(asset)
             guard let sv = asset.tracks(withMediaType: .video).first else { continue }
-            let wanted = CMTimeRange(start: cm(clip.start), end: cm(clip.end))
+            var wanted = CMTimeRange(start: cm(clip.start), end: cm(clip.end))
+            if clip.isReversed {
+                // I baklänges-kopian ligger slutet först: tiden t i originalet är T − t i kopian.
+                let t = sv.timeRange.end.seconds
+                wanted = CMTimeRange(start: cm(max(0, t - clip.end)), end: cm(max(0, t - clip.start)))
+            }
             let vRange = wanted.intersection(sv.timeRange)
             if vRange.isEmpty || vRange.duration.seconds < 0.03 { continue }
 

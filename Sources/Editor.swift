@@ -21,6 +21,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
     @Published var thumbs: [String: NSImage] = [:]
     @Published var stillPreviews: [String: NSImage] = [:]
     @Published var pixelsPerSecond: Double = 40
+    /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
+    @Published var reversing: [UUID: Double] = [:]
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
 
@@ -346,10 +348,16 @@ final class Editor: ObservableObject, @unchecked Sendable {
         }
         player.pause()
         var first = clip
-        first.end = clip.start + local
         var second = clip
         second.id = UUID()
-        second.start = clip.start + local
+        if clip.isReversed {
+            // Baklänges spelas slutet först.
+            first.start = clip.end - local
+            second.end = clip.end - local
+        } else {
+            first.end = clip.start + local
+            second.start = clip.start + local
+        }
         commit { p in
             p.clips[i] = first
             p.clips.insert(second, at: i + 1)
@@ -465,6 +473,57 @@ final class Editor: ObservableObject, @unchecked Sendable {
         if let j = project.index(of: id) {
             player.pause()
             seek(project.startTime(of: j) + project.clips[j].length - 1.0 / 30)
+        }
+    }
+
+    // MARK: - Baklänges
+
+    /// Vänd ett filmklipp baklänges, eller tillbaka framlänges.
+    func toggleReverse(_ id: UUID) {
+        guard reversing[id] == nil, let clip = project.clips.first(where: { $0.id == id }) else { return }
+        if clip.isReversed {
+            commit { p in
+                if let i = p.index(of: id) { p.clips[i].reversedPath = nil }
+            }
+            return
+        }
+        player.pause()
+        let source = clip.url
+        let cached = ReverseRenderer.cacheURL(for: source)
+        if ReverseRenderer.isReady(cached) {
+            setReversed(id, path: cached.path, source: clip.path)
+            return
+        }
+        reversing[id] = 0
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var result: URL?
+            var problem: Error?
+            do {
+                result = try ReverseRenderer.render(source, progress: { f in
+                    DispatchQueue.main.async { [weak self] in
+                        if self?.reversing[id] != nil { self?.reversing[id] = f }
+                    }
+                })
+            } catch {
+                problem = error
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.reversing[id] = nil
+                if let r = result {
+                    self.setReversed(id, path: r.path, source: clip.path)
+                    self.show("Klippet spelas nu baklänges")
+                } else {
+                    self.show("Det gick inte att vända klippet: \(problem?.localizedDescription ?? "okänt fel")")
+                }
+            }
+        }
+    }
+
+    /// Klippet spelas från baklänges-kopian.
+    private func setReversed(_ id: UUID, path: String, source: String) {
+        commit { p in
+            if let i = p.index(of: id) { p.clips[i].reversedPath = path }
         }
     }
 
@@ -841,12 +900,13 @@ final class Editor: ObservableObject, @unchecked Sendable {
 
     /// En liten bild från början av ett filmklipp, i rätt format (även stående).
     func thumbnail(for clip: Clip) -> NSImage? {
-        let key = "\(clip.path)#\(Int(clip.start * 4))"
+        let key = "\(clip.path)#\(Int(clip.start * 4))#\(Int(clip.end * 4))#\(clip.isReversed)"
         if let img = thumbs[key] { return img }
         if thumbLoading.contains(key) { return nil }
         thumbLoading.insert(key)
         let url = clip.url
-        let t = clip.start + min(0.2, clip.length / 2)
+        // Baklänges syns slutet av klippet först.
+        let t = clip.isReversed ? max(clip.start, clip.end - 0.2) : clip.start + min(0.2, clip.length / 2)
         DispatchQueue.global(qos: .userInitiated).async {
             let gen = AVAssetImageGenerator(asset: AVURLAsset(url: url))
             gen.appliesPreferredTrackTransform = true

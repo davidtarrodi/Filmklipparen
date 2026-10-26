@@ -22,6 +22,21 @@ struct ExportTest {
             c.volume = 0.8
             p.clips.append(c)
         }
+        // Första klippet baklänges.
+        let t0 = Date()
+        do {
+            let src = URL(fileURLWithPath: p.clips[0].path)
+            let rev = try ReverseRenderer.render(src, progress: { _ in })
+            let a = AVURLAsset(url: rev)
+            let v = a.tracks(withMediaType: .video).first
+            print("baklänges: \(String(format: "%.2f", a.duration.seconds)) s (original \(String(format: "%.2f", AVURLAsset(url: src).duration.seconds)) s), ljud \(a.tracks(withMediaType: .audio).count), storlek \(v.map { "\(Int($0.naturalSize.width))x\(Int($0.naturalSize.height))" } ?? "-"), tog \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+            p.clips[0].reversedPath = rev.path
+            try? rev.path.write(to: out.deletingLastPathComponent().appendingPathComponent("baklanges.txt"),
+                                atomically: true, encoding: .utf8)
+        } catch {
+            print("FEL: baklänges \(error)")
+            exit(1)
+        }
         // Bild som börjar på filmen och fortsätter efter den (svart utfyllnad).
         let img = Overlay.loadImage(URL(fileURLWithPath: args[2]), maxPixels: 256)!
         p.stills.append(StillItem(path: args[2], aspect: Double(img.width) / Double(img.height),

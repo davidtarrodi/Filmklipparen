@@ -110,15 +110,39 @@ struct ClipSettings: View {
             Text(clip.name).font(.title3.bold()).lineLimit(2)
             Text("Längd \(formatTime(clip.length))").foregroundColor(.secondary)
 
-            Field("Börjar") {
-                Slider(value: Binding(get: { clip.start }, set: { ed.setClipStart(clip.id, $0) }),
-                       in: 0...max(0.3, clip.sourceDuration),
-                       onEditingChanged: { ed.liveEditing($0) })
+            Field("Baklänges") {
+                if let f = ed.reversing[clip.id] {
+                    ProgressView(value: f)
+                    Text("Vänder klippet … \(Int(f * 100)) %").font(.caption).foregroundColor(.secondary)
+                } else {
+                    Button { ed.toggleReverse(clip.id) } label: {
+                        Label(clip.isReversed ? "Spela framlänges igen" : "Spela baklänges",
+                              systemImage: clip.isReversed ? "forward.fill" : "backward.fill")
+                    }
+                }
             }
-            Field("Slutar") {
-                Slider(value: Binding(get: { clip.end }, set: { ed.setClipEnd(clip.id, $0) }),
-                       in: 0...max(0.3, clip.sourceDuration),
-                       onEditingChanged: { ed.liveEditing($0) })
+            if clip.isReversed {
+                // Baklänges: början är slutet i originalfilmen.
+                let d = clip.sourceDuration
+                Field("Börjar") {
+                    Slider(value: Binding(get: { d - clip.end }, set: { ed.setClipEnd(clip.id, d - $0) }),
+                           in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
+                }
+                Field("Slutar") {
+                    Slider(value: Binding(get: { d - clip.start }, set: { ed.setClipStart(clip.id, d - $0) }),
+                           in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
+                }
+            } else {
+                Field("Börjar") {
+                    Slider(value: Binding(get: { clip.start }, set: { ed.setClipStart(clip.id, $0) }),
+                           in: 0...max(0.3, clip.sourceDuration),
+                           onEditingChanged: { ed.liveEditing($0) })
+                }
+                Field("Slutar") {
+                    Slider(value: Binding(get: { clip.end }, set: { ed.setClipEnd(clip.id, $0) }),
+                           in: 0...max(0.3, clip.sourceDuration),
+                           onEditingChanged: { ed.liveEditing($0) })
+                }
             }
             Text("Du kan också dra i klippets kanter i tidslinjen.")
                 .font(.caption).foregroundColor(.secondary)
