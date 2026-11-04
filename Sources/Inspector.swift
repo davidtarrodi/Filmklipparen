@@ -119,6 +119,12 @@ struct ClipSettings: View {
             Text(clip.name).font(.title3.bold()).lineLimit(2)
             Text("Längd \(formatTime(clip.length))").foregroundColor(.secondary)
 
+            Field("Hastighet") {
+                SpeedButtons(rate: clip.rate) { ed.setClipSpeed(clip.id, $0) }
+                Text(clip.rate < 0.999 ? "Slowmotion: klippet blir längre" :
+                        clip.rate > 1.001 ? "Snabbare: klippet blir kortare" : "Vanlig hastighet")
+                    .font(.caption).foregroundColor(.secondary)
+            }
             Field("Baklänges") {
                 if let f = ed.reversing[clip.id] {
                     ProgressView(value: f)
@@ -365,5 +371,38 @@ struct MovieSettings: View {
             Image(systemName: icon).frame(width: 20)
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Knappar för hastigheten: 50 % (slowmotion) till 400 % (fyra gånger så fort).
+struct SpeedButtons: View {
+    let rate: Double
+    let set: (Double) -> Void
+    static let steps: [Double] = [0.5, 0.75, 1, 1.5, 2, 3, 4]
+
+    static func label(_ r: Double) -> String { "\(Int((r * 100).rounded())) %" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(SpeedButtons.steps.prefix(3), id: \.self) { r in button(r) }
+            }
+            HStack(spacing: 6) {
+                ForEach(SpeedButtons.steps.suffix(4), id: \.self) { r in button(r) }
+            }
+        }
+    }
+
+    private func button(_ r: Double) -> some View {
+        let selected = abs(rate - r) < 0.001
+        return Text(SpeedButtons.label(r))
+            .font(.callout.weight(.semibold))
+            .frame(minWidth: 52)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? Color.yellow : Color.white.opacity(0.1)))
+            .foregroundColor(selected ? .black : .primary)
+            .contentShape(Rectangle())
+            .onTapGesture { set(r) }
     }
 }

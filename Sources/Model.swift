@@ -21,11 +21,20 @@ struct Clip: Identifiable, Codable, Equatable {
     var volume: Float = 1
     /// Baklänges-kopian av filmen, om klippet ska spelas baklänges.
     var reversedPath: String? = nil
+    /// Hastighet: 0,5 = slowmotion (hälften så fort), 4 = fyra gånger så fort. Saknas = 1.
+    var speed: Double? = nil
     // Gammalt: flyttas till textspåret när projektet öppnas.
     var title: String? = nil
     var titlePlace: TitlePlace? = nil
 
-    var length: Double { max(0, end - start) }
+    /// Hur fort klippet spelas (0,5–4).
+    var rate: Double { min(Clip.maxSpeed, max(Clip.minSpeed, speed ?? 1)) }
+    static let minSpeed = 0.5
+    static let maxSpeed = 4.0
+    /// Hur mycket av originalfilmen som används (sekunder i filen).
+    var sourceLength: Double { max(0, end - start) }
+    /// Hur länge klippet syns i filmen (sekunder i tidslinjen), med hastigheten inräknad.
+    var length: Double { sourceLength / rate }
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { url.deletingPathExtension().lastPathComponent }
     var isReversed: Bool { reversedPath != nil }
@@ -229,7 +238,7 @@ struct Project: Codable, Equatable {
 
     /// Det som kräver att förhandsvisningen byggs om (bilder och texter ritas ovanpå direkt).
     var mediaKey: MediaKey {
-        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume) },
+        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
                  music: music.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
@@ -244,6 +253,7 @@ struct ClipKey: Equatable {
     var start: Double
     var end: Double
     var volume: Float
+    var rate: Double
 }
 
 struct SoundKey: Equatable {

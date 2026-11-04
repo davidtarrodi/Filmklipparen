@@ -466,13 +466,15 @@ final class Editor: ObservableObject, @unchecked Sendable {
         var first = clip
         var second = clip
         second.id = UUID()
+        // Tiden i tidslinjen blir tid i filmfilen (med hastigheten inräknad).
+        let src = local * clip.rate
         if clip.isReversed {
             // Baklänges spelas slutet först.
-            first.start = clip.end - local
-            second.end = clip.end - local
+            first.start = clip.end - src
+            second.end = clip.end - src
         } else {
-            first.end = clip.start + local
-            second.start = clip.start + local
+            first.end = clip.start + src
+            second.start = clip.start + src
         }
         commit { p in
             p.clips[i] = first
@@ -590,6 +592,19 @@ final class Editor: ObservableObject, @unchecked Sendable {
             player.pause()
             seek(project.startTime(of: j) + project.clips[j].length - 1.0 / 30)
         }
+    }
+
+    // MARK: - Hastighet
+
+    /// 0,5 = slowmotion, 1 = vanligt, 4 = fyra gånger så fort.
+    func setClipSpeed(_ id: UUID, _ rate: Double) {
+        let r = min(Clip.maxSpeed, max(Clip.minSpeed, rate))
+        player.pause()
+        live { p in
+            guard let i = p.index(of: id) else { return }
+            p.clips[i].speed = abs(r - 1) < 0.001 ? nil : r
+        }
+        if let j = project.index(of: id) { seek(project.startTime(of: j)) }
     }
 
     // MARK: - Baklänges
@@ -1045,6 +1060,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
         let item = AVPlayerItem(asset: b.composition)
         item.videoComposition = b.videoComposition
         item.audioMix = b.audioMix
+        // Snabbare eller långsammare ljud behåller tonhöjden.
+        item.audioTimePitchAlgorithm = .spectral
         player.replaceCurrentItem(with: item)
         player.seek(to: cm(min(time, b.duration)), toleranceBefore: .zero, toleranceAfter: .zero)
         if wasPlaying { player.play() }
@@ -1135,6 +1152,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
                 s.outputFileType = .mp4
                 s.videoComposition = b.videoComposition
                 s.audioMix = b.audioMix
+                s.audioTimePitchAlgorithm = .spectral
                 s.shouldOptimizeForNetworkUse = true
                 self.exportSession = s
                 self.exportURLInProgress = url

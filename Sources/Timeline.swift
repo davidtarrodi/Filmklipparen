@@ -210,6 +210,8 @@ struct EdgeHandle: View {
     let change: (Double) -> Void
     /// Baklänges-klipp: att dra åt höger ger ett mindre värde i originalfilmen.
     var invert = false
+    /// Hastighet: en sekund i tidslinjen är så här många sekunder i filmfilen.
+    var scale = 1.0
     @State private var start: Double?
 
     var body: some View {
@@ -227,7 +229,7 @@ struct EdgeHandle: View {
                             ed.liveEditing(true)
                         }
                         guard let s = start else { return }
-                        let delta = Double(v.translation.width) / ed.pixelsPerSecond
+                        let delta = Double(v.translation.width) / ed.pixelsPerSecond * scale
                         change(s + (invert ? -delta : delta))
                     }
                     .onEnded { _ in
@@ -479,16 +481,16 @@ struct ClipBlock: View {
                 if clip.isReversed {
                     // Baklänges: vänsterkanten är slutet av originalfilmen.
                     EdgeHandle(edge: .left, height: TL.film, origin: { clip.end },
-                               change: { ed.setClipEnd(clip.id, $0) }, invert: true)
+                               change: { ed.setClipEnd(clip.id, $0) }, invert: true, scale: clip.rate)
                     Spacer(minLength: 0)
                     EdgeHandle(edge: .right, height: TL.film, origin: { clip.start },
-                               change: { ed.setClipStart(clip.id, $0) }, invert: true)
+                               change: { ed.setClipStart(clip.id, $0) }, invert: true, scale: clip.rate)
                 } else {
                     EdgeHandle(edge: .left, height: TL.film, origin: { clip.start },
-                               change: { ed.setClipStart(clip.id, $0) })
+                               change: { ed.setClipStart(clip.id, $0) }, scale: clip.rate)
                     Spacer(minLength: 0)
                     EdgeHandle(edge: .right, height: TL.film, origin: { clip.end },
-                               change: { ed.setClipEnd(clip.id, $0) })
+                               change: { ed.setClipEnd(clip.id, $0) }, scale: clip.rate)
                 }
             }
             .opacity(w >= 30 && dragX == 0 ? 1 : 0)
@@ -519,6 +521,9 @@ struct ClipBlock: View {
                 Text(clip.name).lineLimit(1)
                 HStack(spacing: 4) {
                     if clip.isReversed { Image(systemName: "backward.fill") }
+                    if clip.rate < 0.999 { Image(systemName: "tortoise.fill") }
+                    if clip.rate > 1.001 { Image(systemName: "hare.fill") }
+                    if abs(clip.rate - 1) > 0.001 { Text(SpeedButtons.label(clip.rate)) }
                     Text(formatTime(clip.length))
                 }
                 .foregroundColor(.white.opacity(0.8))

@@ -33,6 +33,9 @@ struct ExportTest {
             let v = a.tracks(withMediaType: .video).first
             print("baklänges: \(String(format: "%.2f", a.duration.seconds)) s (original \(String(format: "%.2f", AVURLAsset(url: src).duration.seconds)) s), ljudfil \(FileManager.default.fileExists(atPath: ReverseRenderer.audioURL(forReversed: rev).path)), storlek \(v.map { "\(Int($0.naturalSize.width))x\(Int($0.naturalSize.height))" } ?? "-"), tog \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
             p.clips[0].reversedPath = rev.path
+            // Slowmotion på det vända klippet, snabbt på det andra.
+            p.clips[0].speed = 0.5
+            if p.clips.count > 1 { p.clips[1].speed = 2 }
             try? rev.path.write(to: out.deletingLastPathComponent().appendingPathComponent("baklanges.txt"),
                                 atomically: true, encoding: .utf8)
         } catch {
@@ -60,6 +63,7 @@ struct ExportTest {
             s.outputFileType = .mp4
             s.videoComposition = b.videoComposition
             s.audioMix = b.audioMix
+            s.audioTimePitchAlgorithm = .spectral
             let done = DispatchSemaphore(value: 0)
             s.exportAsynchronously { done.signal() }
             done.wait()

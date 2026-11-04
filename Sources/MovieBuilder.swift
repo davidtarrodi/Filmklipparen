@@ -233,7 +233,15 @@ enum MovieBuilder {
                 try place(audioSource, range: vRange, into: aTrack, at: cursor)
             }
             clipAudio.setVolume(clip.volume, at: cursor)
-            cursor = cursor + vRange.duration
+            // Hastighet: sträck ut (slowmotion) eller tryck ihop (snabbare) både bild och ljud.
+            var shown = vRange.duration
+            if abs(clip.rate - 1) > 0.001 {
+                let placed = CMTimeRange(start: cursor, duration: vRange.duration)
+                shown = CMTimeMultiplyByFloat64(vRange.duration, multiplier: 1 / clip.rate)
+                vTrack.scaleTimeRange(placed, toDuration: shown)
+                aTrack.scaleTimeRange(placed, toDuration: shown)
+            }
+            cursor = cursor + shown
         }
 
         // Svart efter filmklippen om bilder, texter eller ljud fortsätter längre.
