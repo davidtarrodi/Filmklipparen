@@ -28,6 +28,8 @@ Text, bild, musik och ljudeffekter dras fritt i tiden och i kanterna; de fastnar
 andra kanter. Inget får ligga omlott i samma spår. Fortsätter en bild eller text efter sista
 filmklippet blir det svart bakom. Äldre projekt med text på filmklippen flyttas automatiskt till textspåret.
 
+- **Hastighet**: välj ett filmklipp och tryck på 50 %–400 % till höger. 50 % är slowmotion (klippet blir
+  dubbelt så långt), 400 % fyra gånger så fort. Ljudet följer med och behåller tonhöjden.
 - **Baklänges**: välj ett filmklipp och tryck *Spela baklänges* till höger. Bild och ljud vänds
   (en kopia sparas i appens mapp, så det går snabbt nästa gång). Ett tryck till gör det framlänges igen.
 - **Ljud- och musikbläddrare**: knapparna *Ljudeffekt* och *Musik* öppnar ett bibliotek i sidopanelen
