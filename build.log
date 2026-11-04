@@ -1,0 +1,9 @@
+== Filmklipparen ==
+Swift: 6.1
+Bygger för x86_64 …
+Bygger för arm64 …
+Länkar: 	@rpath/libswift_Concurrency.dylib (compatibility version 1.0.0, current version 0.0.0, weak)
+	@rpath/libswift_Concurrency.dylib (compatibility version 1.0.0, current version 0.0.0, weak)
+Lade med libswift_Concurrency för macOS 11.
+build/Filmklipparen.app: replacing existing signature
+Klart! Appen ligger i build/Filmklipparen.app (och som zip i build/Filmklipparen.zip).
