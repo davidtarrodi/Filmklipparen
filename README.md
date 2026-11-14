@@ -30,6 +30,8 @@ filmklippet blir det svart bakom. Äldre projekt med text på filmklippen flytta
 
 - **Hastighet**: välj ett filmklipp och tryck på 50 %–400 % till höger. 50 % är slowmotion (klippet blir
   dubbelt så långt), 400 % fyra gånger så fort. Ljudet följer med och behåller tonhöjden.
+- **Röst**: välj ett filmklipp och tryck *Monster*, *Mörk*, *Pipig* eller *Ekorre* till höger. Ljudet i
+  klippet görs om med ändrad tonhöjd (sparas i appens mapp). *Vanlig* tar tillbaka originalet.
 - **Baklänges**: välj ett filmklipp och tryck *Spela baklänges* till höger. Bild och ljud vänds
   (en kopia sparas i appens mapp, så det går snabbt nästa gång). Ett tryck till gör det framlänges igen.
 - **Ljud- och musikbläddrare**: knapparna *Ljudeffekt* och *Musik* öppnar ett bibliotek i sidopanelen
