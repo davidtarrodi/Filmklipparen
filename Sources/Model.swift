@@ -23,6 +23,11 @@ struct Clip: Identifiable, Codable, Equatable {
     var reversedPath: String? = nil
     /// Hastighet: 0,5 = slowmotion (hälften så fort), 4 = fyra gånger så fort. Saknas = 1.
     var speed: Double? = nil
+    /// Röst: tonhöjd i cent (negativt = mörkare, positivt = pipigare). Saknas = vanlig röst.
+    var pitch: Int? = nil
+    /// Den färdiga röstfilen och vilket ljud den gjordes av.
+    var voicePath: String? = nil
+    var voiceSource: String? = nil
     // Gammalt: flyttas till textspåret när projektet öppnas.
     var title: String? = nil
     var titlePlace: TitlePlace? = nil
@@ -238,7 +243,7 @@ struct Project: Codable, Equatable {
 
     /// Det som kräver att förhandsvisningen byggs om (bilder och texter ritas ovanpå direkt).
     var mediaKey: MediaKey {
-        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate) },
+        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate, voice: Voice.activeFile(for: $0)?.path) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
                  music: music.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
@@ -254,6 +259,7 @@ struct ClipKey: Equatable {
     var end: Double
     var volume: Float
     var rate: Double
+    var voice: String?
 }
 
 struct SoundKey: Equatable {

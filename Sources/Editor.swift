@@ -29,6 +29,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
     let musicLibrary = MediaLibrary(kind: .music)
     /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
     @Published var reversing: [UUID: Double] = [:]
+    /// Klipp vars röst håller på att göras om, och hur långt det kommit (0–1).
+    @Published var voicing: [UUID: Double] = [:]
     /// Filmen som är öppen just nu. Ingen öppen film: startskärmen med "Mina filmer" visas.
     @Published private(set) var currentFile: URL?
     @Published private(set) var library: [FilmInfo] = []
@@ -174,6 +176,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
             show("\(cleaned.missing) fil(er) hittades inte längre och togs bort ur filmen")
         }
         if changed { scheduleSave() }
+        // Röster vars ljudfil saknas görs om.
+        for c in project.clips where (c.pitch ?? 0) != 0 { ensureVoice(c.id) }
     }
 
     /// Tillbaka till "Mina filmer". Filmen sparas först.
@@ -607,6 +611,73 @@ final class Editor: ObservableObject, @unchecked Sendable {
         if let j = project.index(of: id) { seek(project.startTime(of: j)) }
     }
 
+    // MARK: - Röst
+
+    /// Mörk eller pipig röst på ett filmklipp. 0 = vanlig röst.
+    func setClipVoice(_ id: UUID, _ cents: Int) {
+        player.pause()
+        commit { p in
+            guard let i = p.index(of: id) else { return }
+            p.clips[i].pitch = cents == 0 ? nil : cents
+            if cents == 0 {
+                p.clips[i].voicePath = nil
+                p.clips[i].voiceSource = nil
+            }
+        }
+        ensureVoice(id)
+    }
+
+    /// Gör röstfilen om den saknas eller hör till ett annat ljud (t.ex. efter baklänges).
+    func ensureVoice(_ id: UUID) {
+        guard voicing[id] == nil, let clip = project.clips.first(where: { $0.id == id }),
+              let cents = clip.pitch, cents != 0, Voice.activeFile(for: clip) == nil
+        else { return }
+        guard let source = Voice.sourceAudioURL(for: clip),
+              !AVURLAsset(url: source).tracks(withMediaType: .audio).isEmpty
+        else {
+            show("Klippet har inget ljud att göra om")
+            return
+        }
+        let cached = Voice.cacheURL(source: source, cents: cents)
+        if FileManager.default.fileExists(atPath: cached.path) {
+            setVoice(id, path: cached.path, source: source.path, cents: cents)
+            return
+        }
+        voicing[id] = 0
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var result: URL?
+            var problem: Error?
+            do {
+                result = try Voice.render(source: source, cents: cents) { f in
+                    DispatchQueue.main.async { [weak self] in
+                        if self?.voicing[id] != nil { self?.voicing[id] = f }
+                    }
+                }
+            } catch {
+                problem = error
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.voicing[id] = nil
+                if let r = result {
+                    self.setVoice(id, path: r.path, source: source.path, cents: cents)
+                } else {
+                    self.show("Det gick inte att ändra rösten: \(problem?.localizedDescription ?? "okänt fel")")
+                }
+            }
+        }
+    }
+
+    private func setVoice(_ id: UUID, path: String, source: String, cents: Int) {
+        // Bara om klippet fortfarande vill ha just den rösten.
+        guard let c = project.clips.first(where: { $0.id == id }), c.pitch == cents else { return }
+        live { p in
+            guard let i = p.index(of: id) else { return }
+            p.clips[i].voicePath = path
+            p.clips[i].voiceSource = source
+        }
+    }
+
     // MARK: - Baklänges
 
     /// Vänd ett filmklipp baklänges, eller tillbaka framlänges.
@@ -616,6 +687,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             commit { p in
                 if let i = p.index(of: id) { p.clips[i].reversedPath = nil }
             }
+            ensureVoice(id)
             return
         }
         player.pause()
@@ -656,6 +728,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         commit { p in
             if let i = p.index(of: id) { p.clips[i].reversedPath = path }
         }
+        ensureVoice(id)
     }
 
     func setClipVolume(_ id: UUID, _ v: Float) {

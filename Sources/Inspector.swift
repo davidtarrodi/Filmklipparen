@@ -125,6 +125,14 @@ struct ClipSettings: View {
                         clip.rate > 1.001 ? "Snabbare: klippet blir kortare" : "Vanlig hastighet")
                     .font(.caption).foregroundColor(.secondary)
             }
+            Field("Röst") {
+                if let f = ed.voicing[clip.id] {
+                    ProgressView(value: f)
+                    Text("Gör om rösten … \(Int(f * 100)) %").font(.caption).foregroundColor(.secondary)
+                } else {
+                    VoiceButtons(cents: clip.pitch ?? 0) { ed.setClipVoice(clip.id, $0) }
+                }
+            }
             Field("Baklänges") {
                 if let f = ed.reversing[clip.id] {
                     ProgressView(value: f)
@@ -404,5 +412,35 @@ struct SpeedButtons: View {
             .foregroundColor(selected ? .black : .primary)
             .contentShape(Rectangle())
             .onTapGesture { set(r) }
+    }
+}
+
+/// Röstknappar: Monster, Mörk, Vanlig, Pipig, Ekorre.
+struct VoiceButtons: View {
+    let cents: Int
+    let set: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                ForEach(Voice.presets.prefix(3), id: \.cents) { p in button(p.name, p.cents) }
+            }
+            HStack(spacing: 6) {
+                ForEach(Voice.presets.suffix(2), id: \.cents) { p in button(p.name, p.cents) }
+            }
+        }
+    }
+
+    private func button(_ name: String, _ c: Int) -> some View {
+        let selected = c == cents
+        return Text(name)
+            .font(.callout.weight(.semibold))
+            .frame(minWidth: 72)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(selected ? Color.yellow : Color.white.opacity(0.1)))
+            .foregroundColor(selected ? .black : .primary)
+            .contentShape(Rectangle())
+            .onTapGesture { set(c) }
     }
 }

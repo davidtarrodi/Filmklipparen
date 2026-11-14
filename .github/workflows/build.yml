@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           xcrun swiftc -O -swift-version 5 -parse-as-library -target "$(uname -m)-apple-macos11.0" \
-            Sources/Model.swift Sources/MovieBuilder.swift Sources/Reverse.swift ci/ExportTest.swift -o build/ExportTest
+            Sources/Model.swift Sources/MovieBuilder.swift Sources/Reverse.swift Sources/Voice.swift ci/ExportTest.swift -o build/ExportTest
           set +e
           build/ExportTest "$PWD/test/film.mp4" "$PWD/test/musik.m4a" "$PWD/test/bild.png" "$PWD/test/pling.wav" "$PWD/test/klipp1.mov" "$PWD/test/klipp2.mp4" > export.log 2>&1
           rc=$?
@@ -108,6 +108,7 @@ jobs:
           cp build/Filmklipparen.zip /tmp/dist/ || true
           cp test/*.png /tmp/dist/test/ 2>/dev/null || true
           cp build.log /tmp/dist/ 2>/dev/null || true
+          cp export.log /tmp/dist/ 2>/dev/null || true
           cd /tmp/dist
           git init -q -b dist
           git -c user.name="GitHub Actions" -c user.email="actions@github.com" add -A

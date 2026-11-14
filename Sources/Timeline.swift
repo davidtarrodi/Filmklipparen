@@ -524,6 +524,7 @@ struct ClipBlock: View {
                     if clip.rate < 0.999 { Image(systemName: "tortoise.fill") }
                     if clip.rate > 1.001 { Image(systemName: "hare.fill") }
                     if abs(clip.rate - 1) > 0.001 { Text(SpeedButtons.label(clip.rate)) }
+                    if let c = clip.pitch, c != 0 { Image(systemName: "mic.fill"); Text(Voice.name(c)) }
                     Text(formatTime(clip.length))
                 }
                 .foregroundColor(.white.opacity(0.8))

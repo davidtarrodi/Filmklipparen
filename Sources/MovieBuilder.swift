@@ -229,6 +229,12 @@ enum MovieBuilder {
                     audioSource = aa.tracks(withMediaType: .audio).first
                 }
             }
+            // Mörk eller pipig röst: en egen ljudfil med ändrad tonhöjd.
+            if let vf = Voice.activeFile(for: clip) {
+                let va = AVURLAsset(url: vf)
+                keep.append(va)
+                if let t = va.tracks(withMediaType: .audio).first { audioSource = t }
+            }
             try attempt("Ljudet i \(clip.name)") {
                 try place(audioSource, range: vRange, into: aTrack, at: cursor)
             }

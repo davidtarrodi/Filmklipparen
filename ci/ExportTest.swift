@@ -36,6 +36,18 @@ struct ExportTest {
             // Slowmotion på det vända klippet, snabbt på det andra.
             p.clips[0].speed = 0.5
             if p.clips.count > 1 { p.clips[1].speed = 2 }
+            // Pipig röst (+800 cent) på det vända klippet: 440 Hz ska bli cirka 698 Hz.
+            let vsrc = Voice.sourceAudioURL(for: p.clips[0])!
+            let t1 = Date()
+            let vf = try Voice.render(source: vsrc, cents: 800)
+            p.clips[0].pitch = 800
+            p.clips[0].voicePath = vf.path
+            p.clips[0].voiceSource = vsrc.path
+            let before = frequency(try Voice.readPCM(AVURLAsset(url: vsrc)))
+            let after = frequency(try Voice.readPCM(AVURLAsset(url: vf)))
+            let lenA = AVURLAsset(url: vsrc).duration.seconds, lenB = AVURLAsset(url: vf).duration.seconds
+            print("röst: \(Int(before)) Hz blev \(Int(after)) Hz (väntat ~698), längd \(String(format: "%.2f", lenA)) → \(String(format: "%.2f", lenB)) s, tog \(String(format: "%.1f", Date().timeIntervalSince(t1))) s")
+            if after < 640 || after > 760 { print("FEL: rösten blev inte pipig"); exit(1) }
             try? rev.path.write(to: out.deletingLastPathComponent().appendingPathComponent("baklanges.txt"),
                                 atomically: true, encoding: .utf8)
         } catch {
@@ -96,5 +108,20 @@ struct ExportTest {
             print("FEL: \(error)")
             exit(1)
         }
+    }
+
+    /// Ungefärlig frekvens (Hz) från nollgenomgångar i vänster kanal, mitt i ljudet.
+    static func frequency(_ pcm: [Int16]) -> Double {
+        let frames = pcm.count / 2
+        let a = frames / 4, b = frames * 3 / 4
+        guard b > a + 100 else { return 0 }
+        var crossings = 0
+        var prev = pcm[2 * a]
+        for i in (a + 1)..<b {
+            let v = pcm[2 * i]
+            if (prev < 0 && v >= 0) || (prev >= 0 && v < 0) { crossings += 1 }
+            prev = v
+        }
+        return Double(crossings) / 2 / (Double(b - a) / 44100)
     }
 }
