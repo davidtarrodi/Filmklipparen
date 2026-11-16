@@ -48,6 +48,14 @@ struct ExportTest {
             let lenA = AVURLAsset(url: vsrc).duration.seconds, lenB = AVURLAsset(url: vf).duration.seconds
             print("röst: \(Int(before)) Hz blev \(Int(after)) Hz (väntat ~698), längd \(String(format: "%.2f", lenA)) → \(String(format: "%.2f", lenB)) s, tog \(String(format: "%.1f", Date().timeIntervalSince(t1))) s")
             if after < 640 || after > 760 { print("FEL: rösten blev inte pipig"); exit(1) }
+            // Byte direkt till en annan röst: den gamla filen får inte användas.
+            var other = p.clips[0]
+            other.pitch = -800
+            print("byte av röst: gammal fil används \(Voice.activeFile(for: other) != nil ? "JA (fel)" : "inte (rätt)")")
+            if Voice.activeFile(for: other) != nil { exit(1) }
+            // Svart först (1 s) och en paus (1 s) mellan klippen.
+            p.clips[0].timelineStart = 1.0
+            if p.clips.count > 1 { p.clips[1].timelineStart = p.clips[0].t1 + 1.0 }
             try? rev.path.write(to: out.deletingLastPathComponent().appendingPathComponent("baklanges.txt"),
                                 atomically: true, encoding: .utf8)
         } catch {
@@ -97,12 +105,14 @@ struct ExportTest {
             let gen = AVAssetImageGenerator(asset: check)
             gen.requestedTimeToleranceBefore = .zero
             gen.requestedTimeToleranceAfter = .zero
-            for (name, t) in [("film", 1.0), ("film2", 4.8), ("film3", 6.5)] {
+            for (name, t) in [("svart1", 0.5), ("film", 2.0), ("film2", 5.8), ("film3", 6.5), ("svart2", 7.5)] {
                 let img = try gen.copyCGImage(at: cm(t), actualTime: nil)
                 let u = out.deletingLastPathComponent().appendingPathComponent(name + ".png")
                 let dest = CGImageDestinationCreateWithURL(u as CFURL, "public.png" as CFString, 1, nil)!
                 CGImageDestinationAddImage(dest, img, nil)
                 CGImageDestinationFinalize(dest)
+                print("bild \(name) vid \(t) s: ljusstyrka \(Int(brightness(img)))")
+                if name.hasPrefix("svart") && brightness(img) > 25 { print("FEL: \(name) är inte svart"); exit(1) }
             }
         } catch {
             print("FEL: \(error)")
@@ -123,5 +133,18 @@ struct ExportTest {
             prev = v
         }
         return Double(crossings) / 2 / (Double(b - a) / 44100)
+    }
+
+    /// Medelljusstyrka 0–255.
+    static func brightness(_ img: CGImage) -> Double {
+        let w = 64, h = 36
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var sum = 0
+        for i in stride(from: 0, to: px.count, by: 4) { sum += Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2]) }
+        return Double(sum) / Double(w * h * 3)
     }
 }

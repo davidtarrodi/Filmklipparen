@@ -31,6 +31,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     @Published var reversing: [UUID: Double] = [:]
     /// Klipp vars röst håller på att göras om, och hur långt det kommit (0–1).
     @Published var voicing: [UUID: Double] = [:]
+    private var voicingCents: [UUID: Int] = [:]
     /// Filmen som är öppen just nu. Ingen öppen film: startskärmen med "Mina filmer" visas.
     @Published private(set) var currentFile: URL?
     @Published private(set) var library: [FilmInfo] = []
@@ -146,6 +147,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         var cleaned = loaded.removingMissingFiles()
         let beforeMigration = cleaned.project
         cleaned.project.migrateOldTitles()
+        cleaned.project.tidyClips()
         // Gammalt: en låt under hela filmen blir en bit i musikspåret.
         if let m = cleaned.project.musicPath {
             let d = AVURLAsset(url: URL(fileURLWithPath: m)).duration.seconds
@@ -426,11 +428,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     func snap(_ t: Double, except id: UUID?) -> Double {
         let tolerance = 8 / pixelsPerSecond
         var targets: [Double] = [0, time]
-        var s = 0.0
-        for c in project.clips {
-            s += c.length
-            targets.append(s)
-        }
+        for c in project.clips where c.id != id { targets += [c.t0, c.t1] }
         for x in project.stills where x.id != id { targets += [x.start, x.end] }
         for x in project.texts where x.id != id { targets += [x.start, x.end] }
         for x in project.sounds where x.id != id { targets += [x.start, x.end] }
@@ -461,7 +459,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             return
         }
         let clip = project.clips[i]
-        let local = t - project.startTime(of: i)
+        let local = t - clip.t0
         guard local > 0.1, local < clip.length - 0.1 else {
             show("Flytta det gula strecket in i ett klipp för att klippa där")
             return
@@ -480,6 +478,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             first.end = clip.start + src
             second.start = clip.start + src
         }
+        second.timelineStart = clip.t0 + local
         commit { p in
             p.clips[i] = first
             p.clips.insert(second, at: i + 1)
@@ -549,36 +548,83 @@ final class Editor: ObservableObject, @unchecked Sendable {
         selection = nil
     }
 
+    /// Knapparna Tidigare/Senare: byt plats med klippet före eller efter (pausen emellan finns kvar).
     func moveSelectedClip(_ direction: Int) {
-        guard let id = selectedClip?.id, let i = project.index(of: id) else { return }
+        guard let id = selectedClip?.id else { return }
+        var p = project
+        p.tidyClips()
+        guard let i = p.index(of: id) else { return }
         let j = i + direction
-        guard j >= 0, j < project.clips.count else { return }
-        commit { $0.clips.swapAt(i, j) }
-        seek(project.startTime(ofID: id))
-    }
-
-    /// Ett filmklipp som dragits hamnar där mitten av de andra klippen säger.
-    func moveClip(_ id: UUID, toTimelineX x: Double) {
-        guard let from = project.index(of: id) else { return }
-        var target = 0
-        var s = 0.0
-        for (i, c) in project.clips.enumerated() {
-            if i != from && (s + c.length / 2) * pixelsPerSecond < x { target += 1 }
-            s += c.length
-        }
-        selection = .clip(id)
-        guard target != from else { return }
-        commit { p in
-            let c = p.clips.remove(at: from)
-            p.clips.insert(c, at: target)
+        guard j >= 0, j < p.clips.count else { return }
+        let (a, b) = (min(i, j), max(i, j))
+        let gap = p.clips[b].t0 - p.clips[a].t1
+        let first = p.clips[a].t0
+        commit { q in
+            q.tidyClips()
+            q.clips[b].timelineStart = first
+            q.clips[a].timelineStart = first + q.clips[b].length + max(0, gap)
+            q.tidyClips()
         }
         seek(project.startTime(ofID: id))
     }
 
+    /// Dra ett filmklipp i tiden. Det fastnar mot strecket och kanter, och kan inte ligga omlott.
+    func moveClip(_ id: UUID, to desired: Double) {
+        guard let c = project.clips.first(where: { $0.id == id }) else { return }
+        let len = c.length
+        var s = snap(desired, except: id)
+        if s == desired { s = snap(desired + len, except: id) - len }
+        let others = project.clips.filter { $0.id != id }.map { (start: $0.t0, end: $0.t1) }
+        let start = Lane.freeStart(desired: s, length: len, others: others)
+        live { p in
+            guard let i = p.index(of: id) else { return }
+            p.clips[i].timelineStart = start
+            p.clips.sort { $0.t0 < $1.t0 }
+        }
+    }
+
+    /// Dra i en kant på ett filmklipp: `t` är var kanten ska hamna i tidslinjen.
+    /// Fungerar likadant för baklänges och ändrad hastighet.
+    func trimClip(_ id: UUID, edge: Edge, to t: Double) {
+        guard let c = project.clips.first(where: { $0.id == id }) else { return }
+        let others = project.clips.filter { $0.id != id }.map { (start: $0.t0, end: $0.t1) }
+        let b = Lane.bounds(of: c.t0, end: c.t1, others: others)
+        let v = snap(t, except: id)
+        let minLen = 0.2 / c.rate
+        var n = c
+        switch edge {
+        case .left:
+            let newL = min(max(v, b.min), c.t1 - minLen)
+            let src = (newL - c.t0) * c.rate
+            if c.isReversed {
+                n.end = min(c.sourceDuration, max(c.start + 0.2, c.end - src))
+            } else {
+                n.start = max(0, min(c.end - 0.2, c.start + src))
+            }
+            n.timelineStart = c.t1 - n.length   // högerkanten står still
+        case .right:
+            let newR = max(min(v, b.max), c.t0 + minLen)
+            let src = (newR - c.t1) * c.rate
+            if c.isReversed {
+                n.start = max(0, min(c.end - 0.2, c.start - src))
+            } else {
+                n.end = min(c.sourceDuration, max(c.start + 0.2, c.end + src))
+            }
+        }
+        player.pause()
+        live { p in
+            guard let i = p.index(of: id) else { return }
+            p.clips[i] = n
+        }
+        seek(edge == .left ? n.t0 : n.t1 - 1.0 / 30)
+    }
+
+    /// Reglagen Börjar/Slutar (tid i filmfilen). Blir klippet längre puttas klippen efter.
     func setClipStart(_ id: UUID, _ v: Double) {
         live { p in
             guard let j = p.index(of: id) else { return }
             p.clips[j].start = max(0, min(v, p.clips[j].end - 0.2))
+            p.tidyClips()
         }
         if let j = project.index(of: id) {
             player.pause()
@@ -591,11 +637,18 @@ final class Editor: ObservableObject, @unchecked Sendable {
             guard let j = p.index(of: id) else { return }
             let c = p.clips[j]
             p.clips[j].end = max(min(v, c.sourceDuration), c.start + 0.2)
+            p.tidyClips()
         }
         if let j = project.index(of: id) {
             player.pause()
             seek(project.startTime(of: j) + project.clips[j].length - 1.0 / 30)
         }
+    }
+
+    /// Ta bort alla svarta pauser mellan filmklippen.
+    func closeGaps() {
+        commit { $0.closeGaps() }
+        show("Klippen ligger nu direkt efter varandra")
     }
 
     // MARK: - Hastighet
@@ -607,6 +660,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         live { p in
             guard let i = p.index(of: id) else { return }
             p.clips[i].speed = abs(r - 1) < 0.001 ? nil : r
+            p.tidyClips()
         }
         if let j = project.index(of: id) { seek(project.startTime(of: j)) }
     }
@@ -619,17 +673,16 @@ final class Editor: ObservableObject, @unchecked Sendable {
         commit { p in
             guard let i = p.index(of: id) else { return }
             p.clips[i].pitch = cents == 0 ? nil : cents
-            if cents == 0 {
-                p.clips[i].voicePath = nil
-                p.clips[i].voiceSource = nil
-            }
+            // Den gamla rösten gäller inte längre; den nya görs (eller hämtas färdig) direkt.
+            p.clips[i].voicePath = nil
+            p.clips[i].voiceSource = nil
         }
         ensureVoice(id)
     }
 
     /// Gör röstfilen om den saknas eller hör till ett annat ljud (t.ex. efter baklänges).
     func ensureVoice(_ id: UUID) {
-        guard voicing[id] == nil, let clip = project.clips.first(where: { $0.id == id }),
+        guard let clip = project.clips.first(where: { $0.id == id }),
               let cents = clip.pitch, cents != 0, Voice.activeFile(for: clip) == nil
         else { return }
         guard let source = Voice.sourceAudioURL(for: clip),
@@ -643,7 +696,9 @@ final class Editor: ObservableObject, @unchecked Sendable {
             setVoice(id, path: cached.path, source: source.path, cents: cents)
             return
         }
+        if voicingCents[id] == cents { return } // görs redan
         voicing[id] = 0
+        voicingCents[id] = cents
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var result: URL?
             var problem: Error?
@@ -658,9 +713,14 @@ final class Editor: ObservableObject, @unchecked Sendable {
             }
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                self.voicing[id] = nil
+                if self.voicingCents[id] == cents {
+                    self.voicing[id] = nil
+                    self.voicingCents[id] = nil
+                }
                 if let r = result {
                     self.setVoice(id, path: r.path, source: source.path, cents: cents)
+                    // Hann man välja en annan röst under tiden görs den nu.
+                    self.ensureVoice(id)
                 } else {
                     self.show("Det gick inte att ändra rösten: \(problem?.localizedDescription ?? "okänt fel")")
                 }
@@ -908,7 +968,15 @@ final class Editor: ObservableObject, @unchecked Sendable {
                 guard let self = self else { return }
                 if !added.isEmpty {
                     let wasEmpty = self.project.isEmpty
-                    self.commit { $0.clips.append(contentsOf: added) }
+                    self.commit { p in
+                        p.tidyClips()
+                        var s = p.filmDuration
+                        for var c in added {
+                            c.timelineStart = s
+                            s += c.length
+                            p.clips.append(c)
+                        }
+                    }
                     self.selection = .clip(added[0].id)
                     if wasEmpty { self.pixelsPerSecond = 40 }
                 }

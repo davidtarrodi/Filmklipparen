@@ -33,7 +33,8 @@ enum Voice {
     /// Den färdiga röstfilen om den finns och hör till klippets nuvarande ljud.
     static func activeFile(for clip: Clip) -> URL? {
         guard let c = clip.pitch, c != 0, let vp = clip.voicePath, let src = sourceAudioURL(for: clip),
-              clip.voiceSource == src.path, FileManager.default.fileExists(atPath: vp)
+              clip.voiceSource == src.path, vp == cacheURL(source: src, cents: c).path,
+              FileManager.default.fileExists(atPath: vp)
         else { return nil }
         return URL(fileURLWithPath: vp)
     }

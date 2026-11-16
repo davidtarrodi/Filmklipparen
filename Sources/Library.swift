@@ -66,7 +66,8 @@ enum FilmLibrary {
                                                 options: [.skipsHiddenFiles])) ?? []
         var out: [FilmInfo] = []
         for u in urls where u.pathExtension == "json" {
-            guard let p = load(u) else { continue }
+            guard var p = load(u) else { continue }
+            p.ensurePositions()
             let mod = (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
             var thumbPath: String?
             var thumbTime = 0.0

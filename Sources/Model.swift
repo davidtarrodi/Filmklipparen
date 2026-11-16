@@ -21,6 +21,8 @@ struct Clip: Identifiable, Codable, Equatable {
     var volume: Float = 1
     /// Baklänges-kopian av filmen, om klippet ska spelas baklänges.
     var reversedPath: String? = nil
+    /// Var klippet börjar i tidslinjen (sekunder). Saknas i gamla filmer: då ligger klippen efter varandra.
+    var timelineStart: Double? = nil
     /// Hastighet: 0,5 = slowmotion (hälften så fort), 4 = fyra gånger så fort. Saknas = 1.
     var speed: Double? = nil
     /// Röst: tonhöjd i cent (negativt = mörkare, positivt = pipigare). Saknas = vanlig röst.
@@ -40,6 +42,9 @@ struct Clip: Identifiable, Codable, Equatable {
     var sourceLength: Double { max(0, end - start) }
     /// Hur länge klippet syns i filmen (sekunder i tidslinjen), med hastigheten inräknad.
     var length: Double { sourceLength / rate }
+    /// Början och slutet i tidslinjen.
+    var t0: Double { timelineStart ?? 0 }
+    var t1: Double { t0 + length }
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { url.deletingPathExtension().lastPathComponent }
     var isReversed: Bool { reversedPath != nil }
@@ -165,8 +170,8 @@ struct Project: Codable, Equatable {
         musicVolume = try c.decodeIfPresent(Float.self, forKey: .musicVolume) ?? 0.5
     }
 
-    /// Filmspårets längd.
-    var filmDuration: Double { clips.reduce(0) { $0 + $1.length } }
+    /// Filmspårets längd (där sista klippet slutar).
+    var filmDuration: Double { clips.map { $0.t1 }.max() ?? 0 }
 
     /// Hela filmens längd. Bilder, texter och ljud efter sista filmklippet förlänger filmen (med svart).
     var duration: Double {
@@ -183,7 +188,7 @@ struct Project: Codable, Equatable {
     func index(of id: UUID) -> Int? { clips.firstIndex { $0.id == id } }
 
     func startTime(of index: Int) -> Double {
-        clips.prefix(index).reduce(0) { $0 + $1.length }
+        clips.indices.contains(index) ? clips[index].t0 : 0
     }
 
     func startTime(ofID id: UUID) -> Double {
@@ -193,12 +198,48 @@ struct Project: Codable, Equatable {
 
     /// Filmklippet som ligger under en tidpunkt.
     func clipIndex(at t: Double) -> Int? {
+        clips.firstIndex { t >= $0.t0 && t < $0.t1 }
+    }
+
+    /// Gamla filmer: klippen läggs efter varandra som förut.
+    mutating func ensurePositions() {
+        guard clips.contains(where: { $0.timelineStart == nil }) else { return }
         var s = 0.0
-        for (i, c) in clips.enumerated() {
-            if t >= s && t < s + c.length { return i }
-            s += c.length
+        for i in clips.indices {
+            clips[i].timelineStart = s
+            s += clips[i].length
         }
-        return nil
+    }
+
+    /// Klippen i tidsordning, och inget får ligga omlott (ett klipp som blivit längre puttar de efter).
+    mutating func tidyClips() {
+        ensurePositions()
+        clips.sort { $0.t0 < $1.t0 }
+        for i in clips.indices {
+            if clips[i].t0 < 0 { clips[i].timelineStart = 0 }
+            if i > 0, clips[i].t0 < clips[i - 1].t1 - 0.0001 { clips[i].timelineStart = clips[i - 1].t1 }
+        }
+    }
+
+    /// Tar bort alla svarta pauser mellan filmklippen.
+    mutating func closeGaps() {
+        tidyClips()
+        var s = 0.0
+        for i in clips.indices {
+            clips[i].timelineStart = s
+            s += clips[i].length
+        }
+    }
+
+    var hasGaps: Bool {
+        var p = self
+        p.tidyClips()
+        var s = 0.0
+        for c in p.clips {
+            if c.t0 > s + 0.05 { return true }
+            s = c.t1
+        }
+        return false
     }
 
     /// Flyttar texter från gamla filmklipp till textspåret.
@@ -243,7 +284,7 @@ struct Project: Codable, Equatable {
 
     /// Det som kräver att förhandsvisningen byggs om (bilder och texter ritas ovanpå direkt).
     var mediaKey: MediaKey {
-        MediaKey(clips: clips.map { ClipKey(path: $0.path, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate, voice: Voice.activeFile(for: $0)?.path) },
+        MediaKey(clips: clips.map { ClipKey(path: $0.path, at: $0.t0, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate, voice: Voice.activeFile(for: $0)?.path) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
                  music: music.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
@@ -254,6 +295,7 @@ struct Project: Codable, Equatable {
 
 struct ClipKey: Equatable {
     var path: String
+    var at: Double
     var reversed: String?
     var start: Double
     var end: Double

@@ -167,7 +167,7 @@ struct ClipSettings: View {
                            onEditingChanged: { ed.liveEditing($0) })
                 }
             }
-            Text("Du kan också dra i klippets kanter i tidslinjen.")
+            Text("Du kan också dra i klippets kanter i tidslinjen. Dra klippet åt sidan för att få svart före eller efter.")
                 .font(.caption).foregroundColor(.secondary)
             Field("Ljud i klippet") {
                 VolumeSlider(value: clip.volume) { ed.setClipVolume(clip.id, $0) }
@@ -356,12 +356,18 @@ struct MovieSettings: View {
             }
             .foregroundColor(.secondary)
 
+            if p.hasGaps {
+                Button { ed.closeGaps() } label: { Label("Ta bort svarta pauser", systemImage: "rectangle.compress.vertical") }
+                    .help("Skjuter ihop filmklippen så att de ligger direkt efter varandra")
+            }
+
             Divider()
             VStack(alignment: .leading, spacing: 8) {
                 Text("Så här gör du").font(.headline)
                 tip("square.stack.3d.up", "Text ligger överst, sedan bild, sedan film")
                 tip("hand.tap", "Klicka på något för att ändra det")
                 tip("hand.draw", "Dra i tidslinjen för att flytta, dra i kanterna för att korta")
+                tip("rectangle.split.3x1", "Dra ett filmklipp åt sidan för att få svart paus")
                 tip("arrow.up.left.and.arrow.down.right", "Dra bilder och texter direkt i rutan")
                 tip("scissors", "K klipper där det gula strecket står")
                 tip("playpause", "Mellanslag spelar och pausar")

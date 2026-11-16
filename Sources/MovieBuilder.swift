@@ -182,6 +182,8 @@ enum MovieBuilder {
     /// i förhandsvisningen ritas de ovanpå i fönstret.
     static func build(_ project: Project, forExport: Bool,
                       isCancelled: () -> Bool = { false }) throws -> BuiltMovie? {
+        var project = project
+        project.tidyClips()
         let total = project.duration
         if total < 0.05 { return nil }
         let size = forExport ? exportSize : previewSize
@@ -200,8 +202,43 @@ enum MovieBuilder {
         var keep: [AVAsset] = []
         defer { withExtendedLifetime(keep) {} }
 
-        // Spår 1: filmklippen efter varandra.
+        // Svart bild där det inte finns något filmklipp: före, mellan och efter klippen.
+        let fillAsset = BlackFiller.url().map { AVURLAsset(url: $0) }
+        if let fa = fillAsset { keep.append(fa) }
+        let fill = fillAsset?.tracks(withMediaType: .video).first
+        func fillBlack(to target: CMTime) {
+            guard target - cursor > cm(1.0 / 60) else { return }
+            aTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: target))
+            if let fill = fill {
+                // Använd bara en bit mitt i den svarta filmen, så att den säkert finns.
+                let chunk = CMTimeMinimum(cm(1.5), fill.timeRange.duration - cm(0.2))
+                if chunk > cm(0.1) {
+                    layer.setTransform(fitTransform(natural: fill.naturalSize, preferred: fill.preferredTransform,
+                                                    into: size), at: cursor)
+                    let begin = cursor
+                    do {
+                        while target - cursor > cm(0.001) {
+                            let len = CMTimeMinimum(chunk, target - cursor)
+                            try vTrack.insertTimeRange(CMTimeRange(start: fill.timeRange.start, duration: len),
+                                                       of: fill, at: cursor)
+                            cursor = cursor + len
+                        }
+                        return
+                    } catch {
+                        NSLog("Filmklipparen: svart utfyllnad gick inte: \(error)")
+                        if cursor > begin { vTrack.removeTimeRange(CMTimeRange(start: begin, end: cursor)) }
+                        cursor = begin
+                    }
+                }
+            }
+            // Reserv: tom bit, blir svart i bilden.
+            vTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: target))
+            cursor = target
+        }
+
+        // Spår 1: filmklippen där de ligger i tidslinjen, med svart emellan.
         for clip in project.clips where clip.length > 0.05 {
+            fillBlack(to: cm(clip.t0))
             if isCancelled() { throw CancelledError() }
             let asset = AVURLAsset(url: clip.mediaURL)
             keep.append(asset)
@@ -251,35 +288,7 @@ enum MovieBuilder {
         }
 
         // Svart efter filmklippen om bilder, texter eller ljud fortsätter längre.
-        if totalTime - cursor > cm(0.02) {
-            var filled = false
-            let fillAsset = BlackFiller.url().map { AVURLAsset(url: $0) }
-            if let fa = fillAsset { keep.append(fa) }
-            if let fill = fillAsset?.tracks(withMediaType: .video).first {
-                // Använd bara en bit mitt i den svarta filmen, så att den säkert finns.
-                let chunk = CMTimeMinimum(cm(1.5), fill.timeRange.duration - cm(0.2))
-                if chunk > cm(0.1) {
-                    layer.setTransform(fitTransform(natural: fill.naturalSize, preferred: fill.preferredTransform,
-                                                    into: size), at: cursor)
-                    do {
-                        while totalTime - cursor > cm(0.001) {
-                            let len = CMTimeMinimum(chunk, totalTime - cursor)
-                            try vTrack.insertTimeRange(CMTimeRange(start: fill.timeRange.start, duration: len),
-                                                       of: fill, at: cursor)
-                            cursor = cursor + len
-                        }
-                        filled = true
-                    } catch {
-                        NSLog("Filmklipparen: svart utfyllnad gick inte: \(error)")
-                    }
-                }
-            }
-            if !filled && totalTime > cursor {
-                // Reserv: tom bit, blir svart i bilden.
-                vTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: totalTime))
-                cursor = totalTime
-            }
-        }
+        fillBlack(to: totalTime)
 
         var params: [AVMutableAudioMixInputParameters] = []
         if aTrack.segments.contains(where: { !$0.isEmpty }) {

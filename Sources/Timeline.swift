@@ -26,6 +26,11 @@ enum Palette {
         Color(red: 0.45, green: 0.70, blue: 0.25),
     ]
     static func filmColor(_ i: Int) -> Color { film[i % film.count] }
+    /// Samma färg på ett klipp hela tiden, även när det flyttas.
+    static func filmColor(for id: UUID) -> Color {
+        let n = id.uuidString.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return film[n % film.count]
+    }
     static let text = Color(red: 0.95, green: 0.75, blue: 0.15)
     static let still = Color(red: 0.15, green: 0.65, blue: 0.85)
     static let filmAudio = Color(red: 0.35, green: 0.55, blue: 0.95)
@@ -425,13 +430,9 @@ struct FilmLane: View {
                     .frame(width: 320, height: TL.film)
                     .allowsHitTesting(false)
             }
-            HStack(spacing: 0) {
-                ForEach(Array(ed.project.clips.enumerated()), id: \.element.id) { i, clip in
-                    ClipBlock(clip: clip, index: i, x0: CGFloat(ed.project.startTime(of: i) * ed.pixelsPerSecond),
-                              scrollX: scrollX)
-                }
+            ForEach(ed.project.clips) { clip in
+                ClipBlock(clip: clip, x0: CGFloat(clip.t0 * ed.pixelsPerSecond), scrollX: scrollX)
             }
-            .coordinateSpace(name: "clips")
         }
         .frame(width: width, height: TL.film, alignment: .topLeading)
     }
@@ -440,16 +441,16 @@ struct FilmLane: View {
 struct ClipBlock: View {
     @EnvironmentObject var ed: Editor
     let clip: Clip
-    let index: Int
     let x0: CGFloat
     let scrollX: CGFloat
-    @State private var dragX: CGFloat = 0
+    @State private var moveStart: Double?
+    @State private var moved = false
 
     var body: some View {
         let w = max(6, CGFloat(clip.length * ed.pixelsPerSecond))
         let selected = ed.selection == .clip(clip.id)
         ZStack(alignment: .topLeading) {
-            Palette.filmColor(index).opacity(0.9)
+            Palette.filmColor(for: clip.id).opacity(0.9)
             stickyLabel(w: w)
         }
         .frame(width: w, height: TL.film)
@@ -458,44 +459,40 @@ struct ClipBlock: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(selected ? Color.yellow : Color.black.opacity(0.7), lineWidth: selected ? 3 : 1.5)
         )
-        .shadow(color: Color.black.opacity(dragX == 0 ? 0 : 0.6), radius: 8)
-        .offset(x: dragX, y: dragX == 0 ? 0 : -4)
-        .zIndex(dragX == 0 ? 0 : 1)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 0, coordinateSpace: .named("clips"))
+            // Dra klippet fritt i tiden; det som blir kvar bakom blir svart.
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("tlcontent"))
                 .onChanged { v in
-                    if abs(v.translation.width) > 5 || dragX != 0 { dragX = v.translation.width }
+                    if moveStart == nil {
+                        moveStart = clip.t0
+                        moved = false
+                        ed.defocus()
+                        ed.liveEditing(true)
+                    }
+                    if abs(v.translation.width) > 4 { moved = true }
+                    guard moved, let s = moveStart else { return }
+                    if ed.selection != .clip(clip.id) { ed.selection = .clip(clip.id) }
+                    ed.moveClip(clip.id, to: s + Double(v.translation.width) / ed.pixelsPerSecond)
                 }
                 .onEnded { v in
-                    if dragX == 0 && abs(v.translation.width) <= 5 {
-                        ed.click(.clip(clip.id), atTimelineX: Double(v.startLocation.x))
-                    } else {
-                        ed.moveClip(clip.id, toTimelineX: Double(v.location.x))
-                    }
-                    dragX = 0
+                    if !moved { ed.click(.clip(clip.id), atTimelineX: Double(v.startLocation.x)) }
+                    moveStart = nil
+                    ed.liveEditing(false)
                 }
         )
         .overlay(
             HStack(spacing: 0) {
-                if clip.isReversed {
-                    // Baklänges: vänsterkanten är slutet av originalfilmen.
-                    EdgeHandle(edge: .left, height: TL.film, origin: { clip.end },
-                               change: { ed.setClipEnd(clip.id, $0) }, invert: true, scale: clip.rate)
-                    Spacer(minLength: 0)
-                    EdgeHandle(edge: .right, height: TL.film, origin: { clip.start },
-                               change: { ed.setClipStart(clip.id, $0) }, invert: true, scale: clip.rate)
-                } else {
-                    EdgeHandle(edge: .left, height: TL.film, origin: { clip.start },
-                               change: { ed.setClipStart(clip.id, $0) }, scale: clip.rate)
-                    Spacer(minLength: 0)
-                    EdgeHandle(edge: .right, height: TL.film, origin: { clip.end },
-                               change: { ed.setClipEnd(clip.id, $0) }, scale: clip.rate)
-                }
+                EdgeHandle(edge: .left, height: TL.film, origin: { clip.t0 },
+                           change: { ed.trimClip(clip.id, edge: .left, to: $0) })
+                Spacer(minLength: 0)
+                EdgeHandle(edge: .right, height: TL.film, origin: { clip.t1 },
+                           change: { ed.trimClip(clip.id, edge: .right, to: $0) })
             }
-            .opacity(w >= 30 && dragX == 0 ? 1 : 0)
-            .allowsHitTesting(w >= 30 && dragX == 0)
+            .opacity(w >= 30 ? 1 : 0)
+            .allowsHitTesting(w >= 30)
         )
+        .offset(x: x0)
     }
 
     /// Liten bild och namn längst till vänster. Följer med när man scrollar, så den syns
@@ -550,8 +547,7 @@ struct FilmAudioLane: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             LaneBackground(width: width, height: TL.filmAudio)
-            HStack(spacing: 0) {
-                ForEach(ed.project.clips) { clip in
+            ForEach(ed.project.clips) { clip in
                     let w = max(6, CGFloat(clip.length * ed.pixelsPerSecond))
                     let selected = ed.selection == .clip(clip.id)
                     ZStack(alignment: .leading) {
@@ -569,7 +565,7 @@ struct FilmAudioLane: View {
                     .contentShape(Rectangle())
                     .onTapGesture { ed.selection = .clip(clip.id) }
                     .help("Ljudet i filmklippet. Ändra ljudnivån till höger.")
-                }
+                    .offset(x: CGFloat(clip.t0 * ed.pixelsPerSecond))
             }
         }
         .frame(width: width, height: TL.filmAudio, alignment: .topLeading)
