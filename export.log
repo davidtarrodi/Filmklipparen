@@ -1,0 +1,50 @@
+baklänges: 4.00 s (original 4.00 s), ljudfil true, storlek 1280x720, tog 6.3 s
+röst: 439 Hz blev 698 Hz (väntat ~698), längd 4.00 → 4.00 s, tog 0.5 s
+byte av röst: gammal fil används inte (rätt)
+väntad längd 9.0 s (film 9.0 s)
+OK: 9.00 s väntat 9.00 s, video 1 1920x1080, ljud 1
+bild svart1 vid 0.5 s: ljusstyrka 3
+bild film vid 2.0 s: ljusstyrka 135
+bild film2 vid 5.8 s: ljusstyrka 131
+bild film3 vid 6.5 s: ljusstyrka 131
+bild svart2 vid 7.5 s: ljusstyrka 0
+förhandsvisning med pauser: längd 9.0, instruktioner ["0.0–9.0"], giltig true []
+  spår vide: bit 0.000+1.000, bit 1.000+6.000, bit 7.000+1.000, bit 8.000+1.000
+  spår soun: tom 0.000+1.000, bit 1.000+6.000
+  spår soun: bit 0.000+1.975, tom 1.975+1.025, bit 3.000+1.475
+  spår soun: tom 0.000+1.000, bit 1.000+1.000, tom 2.000+3.000, bit 5.000+0.500
+  klipp vid 4.00 s: ljusstyrka 127
+  klipp vid 8.50 s: ljusstyrka 31
+förhandsvisning utan pauser: längd 7.0, instruktioner ["0.0–7.0"], giltig true []
+  spår vide: bit 0.000+6.000, bit 6.000+1.000
+  spår soun: bit 0.000+6.000
+  spår soun: bit 0.000+1.975, tom 1.975+1.025, bit 3.000+1.475
+  spår soun: tom 0.000+1.000, bit 1.000+1.000, tom 2.000+3.000, bit 5.000+0.500
+  klipp vid 3.00 s: ljusstyrka 127
+  klipp vid 6.50 s: ljusstyrka 31
+förhandsvisning utan pauser, sparad: längd 7.0, instruktioner ["0.0–7.0"], giltig true []
+  spår vide: bit 0.000+6.000, bit 6.000+1.000
+  spår soun: bit 0.000+6.000
+  spår soun: bit 0.000+1.975, tom 1.975+1.025, bit 3.000+1.475
+  spår soun: tom 0.000+1.000, bit 1.000+1.000, tom 2.000+3.000, bit 5.000+0.500
+  klipp vid 3.00 s: ljusstyrka 127
+  klipp vid 6.50 s: ljusstyrka 31
+förhandsvisning ljud längre än bild: längd 7.1, instruktioner ["0.0–7.1"], giltig true []
+  spår vide: bit 0.000+6.080, bit 6.080+1.020
+  spår soun: bit 0.000+6.080
+  spår soun: bit 0.000+1.975, tom 1.975+1.025, bit 3.000+1.475
+  spår soun: tom 0.000+1.000, bit 1.000+1.000, tom 2.000+3.000, bit 5.000+0.500
+  klipp vid 3.04 s: ljusstyrka 127
+  klipp vid 6.59 s: ljusstyrka 31
+förhandsvisning ljud efter sista klippet: längd 9.0, instruktioner ["0.0–9.0"], giltig true []
+  spår vide: bit 0.000+6.000, bit 6.000+1.000, bit 7.000+1.500, bit 8.500+0.500
+  spår soun: bit 0.000+6.000
+  spår soun: bit 0.000+1.975, tom 1.975+1.025, bit 3.000+1.475
+  spår soun: tom 0.000+1.000, bit 1.000+1.000, tom 2.000+3.000, bit 5.000+0.500, tom 5.500+0.500, bit 6.000+3.000
+  klipp vid 3.00 s: ljusstyrka 127
+  klipp vid 6.50 s: ljusstyrka 31
+  efter klippen vid 8.00 s: ljusstyrka 0
+svartvitt: 1080x1920 blev 1080x1920, längd 3.00 s, tog 2.2 s
+stående: 1080x1920, 7.00 s
+  staende1: 1080x1920, mitten ljus 106 färg 177, överkant ljus 0
+  staende2: 1080x1920, mitten ljus 134 färg 0, överkant ljus 51
