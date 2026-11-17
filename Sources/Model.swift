@@ -30,6 +30,8 @@ struct Clip: Identifiable, Codable, Equatable {
     /// Den färdiga röstfilen och vilket ljud den gjordes av.
     var voicePath: String? = nil
     var voiceSource: String? = nil
+    /// Svartvit bild.
+    var blackWhite: Bool? = nil
     // Gammalt: flyttas till textspåret när projektet öppnas.
     var title: String? = nil
     var titlePlace: TitlePlace? = nil
@@ -154,6 +156,12 @@ struct Project: Codable, Equatable {
     // Gammalt: en enda låt under hela filmen. Flyttas till musikspåret när filmen öppnas.
     var musicPath: String? = nil
     var musicVolume: Float = 0.5
+    /// Stående film (9:16) i stället för liggande (16:9).
+    var portrait: Bool? = nil
+
+    var isPortrait: Bool { portrait ?? false }
+    /// Bildens form, bredd delat med höjd.
+    var aspect: Double { isPortrait ? 9.0 / 16.0 : 16.0 / 9.0 }
 
     init() {}
 
@@ -168,6 +176,7 @@ struct Project: Codable, Equatable {
         music = try c.decodeIfPresent([SoundItem].self, forKey: .music) ?? []
         musicPath = try c.decodeIfPresent(String.self, forKey: .musicPath)
         musicVolume = try c.decodeIfPresent(Float.self, forKey: .musicVolume) ?? 0.5
+        portrait = try c.decodeIfPresent(Bool.self, forKey: .portrait)
     }
 
     /// Filmspårets längd (där sista klippet slutar).
@@ -284,12 +293,12 @@ struct Project: Codable, Equatable {
 
     /// Det som kräver att förhandsvisningen byggs om (bilder och texter ritas ovanpå direkt).
     var mediaKey: MediaKey {
-        MediaKey(clips: clips.map { ClipKey(path: $0.path, at: $0.t0, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate, voice: Voice.activeFile(for: $0)?.path) },
+        MediaKey(clips: clips.map { ClipKey(path: $0.path, at: $0.t0, reversed: $0.reversedPath, start: $0.start, end: $0.end, volume: $0.volume, rate: $0.rate, voice: Voice.activeFile(for: $0)?.path, bw: BlackWhite.activeFile(for: $0)?.path) },
                  sounds: sounds.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                                duration: $0.duration, volume: $0.volume) },
                  music: music.map { SoundKey(path: $0.path, inPoint: $0.inPoint, start: $0.start,
                                              duration: $0.duration, volume: $0.volume) },
-                 duration: (duration * 30).rounded() / 30)
+                 duration: (duration * 30).rounded() / 30, portrait: isPortrait)
     }
 }
 
@@ -302,6 +311,7 @@ struct ClipKey: Equatable {
     var volume: Float
     var rate: Double
     var voice: String?
+    var bw: String?
 }
 
 struct SoundKey: Equatable {
@@ -317,6 +327,7 @@ struct MediaKey: Equatable {
     var sounds: [SoundKey]
     var music: [SoundKey]
     var duration: Double
+    var portrait: Bool
 }
 
 // MARK: - Fria spår: ingenting får ligga omlott

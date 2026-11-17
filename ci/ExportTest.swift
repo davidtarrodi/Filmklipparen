@@ -136,6 +136,7 @@ struct ExportTest {
         var e = r
         e.sounds.append(SoundItem(path: e.clips[0].path, sourceDuration: 4, start: e.filmDuration - 1, duration: 3))
         previewCheck(e, name: "ljud efter sista klippet", blackAt: e.filmDuration + 1)
+        portraitCheck(r, out: out)
         if previewFailed { exit(1) }
     }
 
@@ -208,5 +209,89 @@ struct ExportTest {
         var sum = 0
         for i in stride(from: 0, to: px.count, by: 4) { sum += Int(px[i]) + Int(px[i + 1]) + Int(px[i + 2]) }
         return Double(sum) / Double(w * h * 3)
+    }
+
+    /// Stående film (9:16) med ett svartvitt stående klipp och ett liggande klipp.
+    static func portraitCheck(_ base: Project, out: URL) {
+        var p = base
+        p.portrait = true
+        p.texts = [TextItem(text: "Stående", start: 0.2, duration: 2)]
+        do {
+            let src = p.clips[1].mediaURL
+            let t0 = Date()
+            let bw = try BlackWhite.render(source: src)
+            let s1 = AVURLAsset(url: src).tracks(withMediaType: .video).first!
+            let s2 = AVURLAsset(url: bw).tracks(withMediaType: .video).first!
+            let o1 = CGRect(origin: .zero, size: s1.naturalSize).applying(s1.preferredTransform).size
+            let o2 = CGRect(origin: .zero, size: s2.naturalSize).applying(s2.preferredTransform).size
+            print("svartvitt: \(Int(abs(o1.width)))x\(Int(abs(o1.height))) blev \(Int(abs(o2.width)))x\(Int(abs(o2.height))), längd \(String(format: "%.2f", AVURLAsset(url: bw).duration.seconds)) s, tog \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+            if abs(abs(o1.width) - abs(o2.width)) > 2 || abs(abs(o1.height) - abs(o2.height)) > 2 { print("FEL: svartvitt vändes fel"); previewFailed = true }
+            p.clips[1].blackWhite = true
+            if BlackWhite.activeFile(for: p.clips[1]) == nil { print("FEL: svartvit fil hittas inte"); previewFailed = true }
+
+            let u = out.deletingLastPathComponent().appendingPathComponent("staende.mp4")
+            try? FileManager.default.removeItem(at: u)
+            guard let b = try MovieBuilder.build(p, forExport: true),
+                  let s = AVAssetExportSession(asset: b.composition, presetName: MovieBuilder.exportPreset(p))
+            else { print("FEL: stående byggdes inte"); previewFailed = true; return }
+            s.outputURL = u
+            s.outputFileType = .mp4
+            s.videoComposition = b.videoComposition
+            s.audioMix = b.audioMix
+            let done = DispatchSemaphore(value: 0)
+            s.exportAsynchronously { done.signal() }
+            done.wait()
+            guard s.status == .completed else { print("FEL: stående export \(String(describing: s.error))"); previewFailed = true; return }
+            let check = AVURLAsset(url: u)
+            let v = check.tracks(withMediaType: .video).first!
+            let size = CGRect(origin: .zero, size: v.naturalSize).applying(v.preferredTransform).size
+            print("stående: \(Int(abs(size.width)))x\(Int(abs(size.height))), \(String(format: "%.2f", check.duration.seconds)) s")
+            if Int(abs(size.width)) != 1080 || Int(abs(size.height)) != 1920 { print("FEL: inte 1080x1920"); previewFailed = true }
+            let gen = AVAssetImageGenerator(asset: check)
+            gen.appliesPreferredTrackTransform = true
+            gen.requestedTimeToleranceBefore = .zero
+            gen.requestedTimeToleranceAfter = .zero
+            var q = p; q.tidyClips()
+            for (i, name) in [(0, "staende1"), (1, "staende2")] {
+                let c = q.clips[i]
+                let img = try gen.copyCGImage(at: cm(c.t0 + c.length / 2), actualTime: nil)
+                let f = out.deletingLastPathComponent().appendingPathComponent(name + ".png")
+                let dest = CGImageDestinationCreateWithURL(f as CFURL, "public.png" as CFString, 1, nil)!
+                CGImageDestinationAddImage(dest, img, nil)
+                CGImageDestinationFinalize(dest)
+                let all = stats(img, CGRect(x: 0, y: 0.3, width: 1, height: 0.4))
+                let top = stats(img, CGRect(x: 0, y: 0, width: 1, height: 0.1))
+                print("  \(name): \(img.width)x\(img.height), mitten ljus \(Int(all.b)) färg \(Int(all.s)), överkant ljus \(Int(top.b))")
+                if all.b < 25 { print("FEL: \(name) är svart"); previewFailed = true }
+                if i == 0 && top.b > 25 { print("FEL: liggande klipp borde ha svart upptill"); previewFailed = true }
+                if i == 1 && top.b < 25 { print("FEL: stående klipp borde fylla höjden"); previewFailed = true }
+                if i == 1 && all.s > 12 { print("FEL: inte svartvitt"); previewFailed = true }
+                if i == 0 && all.s < 12 { print("FEL: färgklippet blev grått"); previewFailed = true }
+            }
+        } catch {
+            print("FEL: stående \(error)")
+            previewFailed = true
+        }
+    }
+
+    /// Medel för ljusstyrka och färgmättnad (0–255) i en del av bilden (0–1, uppifrån).
+    static func stats(_ img: CGImage, _ r: CGRect) -> (b: Double, s: Double) {
+        let w = 72, h = 128
+        var px = [UInt8](repeating: 0, count: w * h * 4)
+        guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return (0, 0) }
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var sb = 0.0, ss = 0.0, n = 0.0
+        for y in Int(r.minY * Double(h))..<Int(r.maxY * Double(h)) {
+            for x in Int(r.minX * Double(w))..<Int(r.maxX * Double(w)) {
+                let i = (y * w + x) * 4
+                let c = [Double(px[i]), Double(px[i + 1]), Double(px[i + 2])]
+                sb += (c[0] + c[1] + c[2]) / 3
+                ss += c.max()! - c.min()!
+                n += 1
+            }
+        }
+        return (sb / max(1, n), ss / max(1, n))
     }
 }

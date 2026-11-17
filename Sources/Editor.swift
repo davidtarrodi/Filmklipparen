@@ -29,6 +29,8 @@ final class Editor: ObservableObject, @unchecked Sendable {
     let musicLibrary = MediaLibrary(kind: .music)
     /// Klipp som håller på att vändas baklänges, och hur långt det kommit (0–1).
     @Published var reversing: [UUID: Double] = [:]
+    @Published var blackWhiting: [UUID: Double] = [:]
+    private var bwBusy: Set<String> = []
     /// Klipp vars röst håller på att göras om, och hur långt det kommit (0–1).
     @Published var voicing: [UUID: Double] = [:]
     private var voicingCents: [UUID: Int] = [:]
@@ -181,6 +183,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
         if changed { scheduleSave() }
         // Röster vars ljudfil saknas görs om.
         for c in project.clips where (c.pitch ?? 0) != 0 { ensureVoice(c.id) }
+        for c in project.clips where c.blackWhite == true { ensureBlackWhite(c.id) }
     }
 
     /// Tillbaka till "Mina filmer". Filmen sparas först.
@@ -781,6 +784,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
                 if let i = p.index(of: id) { p.clips[i].reversedPath = nil }
             }
             ensureVoice(id)
+            ensureBlackWhite(id)
             return
         }
         player.pause()
@@ -822,6 +826,56 @@ final class Editor: ObservableObject, @unchecked Sendable {
             if let i = p.index(of: id) { p.clips[i].reversedPath = path }
         }
         ensureVoice(id)
+        ensureBlackWhite(id)
+    }
+
+    // MARK: - Svartvitt och bildformat
+
+    func setBlackWhite(_ id: UUID, _ on: Bool) {
+        player.pause()
+        commit { p in
+            if let i = p.index(of: id) { p.clips[i].blackWhite = on ? true : nil }
+        }
+        ensureBlackWhite(id)
+    }
+
+    /// Gör den svartvita kopian om den saknas (även för baklänges-kopian).
+    func ensureBlackWhite(_ id: UUID) {
+        guard let clip = project.clips.first(where: { $0.id == id }), clip.blackWhite == true,
+              BlackWhite.activeFile(for: clip) == nil else { return }
+        let source = clip.mediaURL
+        if bwBusy.contains(source.path) { return }
+        bwBusy.insert(source.path)
+        blackWhiting[id] = 0
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var problem: Error?
+            do {
+                _ = try BlackWhite.render(source: source) { f in
+                    DispatchQueue.main.async { [weak self] in
+                        if self?.blackWhiting[id] != nil { self?.blackWhiting[id] = f }
+                    }
+                }
+            } catch {
+                problem = error
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.bwBusy.remove(source.path)
+                self.blackWhiting[id] = nil
+                if let e = problem {
+                    self.show("Det gick inte att göra klippet svartvitt: \(e.localizedDescription)")
+                } else {
+                    self.scheduleRebuild()
+                    self.ensureBlackWhite(id)
+                }
+            }
+        }
+    }
+
+    /// Liggande (16:9) eller stående (9:16) film.
+    func setPortrait(_ on: Bool) {
+        guard on != project.isPortrait else { return }
+        commit { $0.portrait = on ? true : nil }
     }
 
     func setClipVolume(_ id: UUID, _ v: Float) {
@@ -1291,12 +1345,13 @@ final class Editor: ObservableObject, @unchecked Sendable {
     }
 
     /// Texten som bild, ritad för en 720 hög bild. Samma ritning som i den sparade filmen.
-    static let textPreviewHeight: CGFloat = 720
+    /// Rutan texterna ritas för i förhandsvisningen.
+    var textPreviewFrame: CGSize { MovieBuilder.previewSize(project) }
 
     func textPreview(_ t: TextItem) -> NSImage? {
-        let key = "\(t.text)|\(t.font)|\(t.bold)|\(t.size)|\(t.color)"
+        let key = "\(t.text)|\(t.font)|\(t.bold)|\(t.size)|\(t.color)|\(project.isPortrait)"
         if let img = textCache[key] { return img }
-        guard let cg = Overlay.textImage(t, frameHeight: Editor.textPreviewHeight) else { return nil }
+        guard let cg = Overlay.textImage(t, frame: textPreviewFrame) else { return nil }
         if textCache.count > 300 { textCache.removeAll() }
         let img = NSImage(cgImage: cg, size: CGSize(width: cg.width, height: cg.height))
         textCache[key] = img
@@ -1322,7 +1377,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 guard let b = built,
-                      let s = AVAssetExportSession(asset: b.composition, presetName: AVAssetExportPreset1920x1080)
+                      let s = AVAssetExportSession(asset: b.composition, presetName: MovieBuilder.exportPreset(p))
                 else {
                     self.exportProgress = nil
                     self.show("Det gick inte att göra filmen: \((problem ?? BuildError.failed).localizedDescription)")

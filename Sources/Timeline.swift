@@ -509,6 +509,7 @@ struct ClipBlock: View {
                 Color.black.opacity(0.35)
                 if let img = img {
                     Image(nsImage: img).resizable().aspectRatio(contentMode: .fit)
+                        .saturation(clip.blackWhite == true ? 0 : 1)
                 }
             }
             .frame(width: thumbW, height: thumbH)
@@ -518,6 +519,7 @@ struct ClipBlock: View {
                 Text(clip.name).lineLimit(1)
                 HStack(spacing: 4) {
                     if clip.isReversed { Image(systemName: "backward.fill") }
+                    if clip.blackWhite == true { Image(systemName: "circle.lefthalf.fill") }
                     if clip.rate < 0.999 { Image(systemName: "tortoise.fill") }
                     if clip.rate > 1.001 { Image(systemName: "hare.fill") }
                     if abs(clip.rate - 1) > 0.001 { Text(SpeedButtons.label(clip.rate)) }
@@ -525,7 +527,7 @@ struct ClipBlock: View {
                     Text(formatTime(clip.length))
                 }
                 .foregroundColor(.white.opacity(0.8))
-                if let f = ed.reversing[clip.id] {
+                if let f = ed.reversing[clip.id] ?? ed.blackWhiting[clip.id] {
                     ProgressView(value: f).frame(width: 70)
                 }
             }

@@ -60,7 +60,7 @@ jobs:
         shell: bash
         run: |
           xcrun swiftc -O -swift-version 5 -parse-as-library -target "$(uname -m)-apple-macos11.0" \
-            Sources/Model.swift Sources/MovieBuilder.swift Sources/Reverse.swift Sources/Voice.swift ci/ExportTest.swift -o build/ExportTest
+            Sources/Model.swift Sources/MovieBuilder.swift Sources/Reverse.swift Sources/Voice.swift Sources/Effects.swift ci/ExportTest.swift -o build/ExportTest
           set +e
           build/ExportTest "$PWD/test/film.mp4" "$PWD/test/musik.m4a" "$PWD/test/bild.png" "$PWD/test/pling.wav" "$PWD/test/klipp1.mov" "$PWD/test/klipp2.mp4" > export.log 2>&1
           rc=$?
@@ -100,6 +100,19 @@ jobs:
           pkill -x Filmklipparen || true
           sleep 2
           python3 -c "import json,sys; p=json.load(open(sys.argv[1])); print('film', p['name'], 'texter', len(p['texts']), 'bilder', len(p['stills']), 'effekter', len(p['sounds'])); assert len(p['texts'])==2, 'gammal text flyttades inte'; assert len(p.get('music',[]))==1 and not p.get('musicPath'), 'gammal musik flyttades inte'; print('musik', p['music'][0]['start'], p['music'][0]['duration'])" "$F" | while read -r l; do echo "::notice::$l"; done
+          # 3) Utan bläddraren: inställningarna för hela filmen
+          open build/Filmklipparen.app --args -OpenLatest YES
+          sleep 10
+          screencapture -x test/skarmbild-panel.png || true
+          pkill -x Filmklipparen || true
+          sleep 2
+          # 4) Stående film: bilden till vänster
+          python3 -c "import json,sys; p=json.load(open(sys.argv[1])); p['portrait']=True; json.dump(p, open(sys.argv[1],'w'))" "$F"
+          open build/Filmklipparen.app --args -OpenLatest YES
+          sleep 10
+          pgrep -x Filmklipparen || { echo "Appen kraschade (stående)"; exit 1; }
+          screencapture -x test/skarmbild-staende.png || true
+          pkill -x Filmklipparen || true
 
       - name: Lägg appen och provresultat i grenen dist
         if: always()

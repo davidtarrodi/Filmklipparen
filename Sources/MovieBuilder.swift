@@ -49,8 +49,7 @@ enum Overlay {
     }
 
     /// Hur mycket en bild ska förstoras för att täcka hela rutan.
-    static func coverScale(aspect: Double) -> Double {
-        let f = 16.0 / 9.0
+    static func coverScale(aspect: Double, frameAspect f: Double = 16.0 / 9.0) -> Double {
         return max(aspect / f, f / aspect)
     }
 
@@ -64,12 +63,14 @@ enum Overlay {
 
     /// Ritar en text till en bild för en film som är `frameHeight` hög.
     /// Bilden ska placeras med mitten i (x, y). Texten bryts så att den får plats i bilden.
-    static func textImage(_ t: TextItem, frameHeight: CGFloat) -> CGImage? {
+    /// Textstorleken räknas från rutans kortaste sida, så den blir lika stor i stående och liggande.
+    static func textImage(_ t: TextItem, frame: CGSize) -> CGImage? {
         let text = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty { return nil }
-        let k = frameHeight / 1080
-        let fontSize = max(6, CGFloat(t.size) * frameHeight)
-        let maxWidth = frameHeight * 16 / 9 * 0.92
+        let base = min(frame.width, frame.height)
+        let k = base / 1080
+        let fontSize = max(6, CGFloat(t.size) * base)
+        let maxWidth = frame.width * 0.92
         let para = NSMutableParagraphStyle()
         para.alignment = .center
         let color = NSColor(cgColor: TextStyle.cgColor(t.color)) ?? .white
@@ -173,10 +174,18 @@ enum BlackFiller {
 
 /// Bygger ihop alla spår till en film med Apples AVFoundation. Fungerar på macOS 11.
 enum MovieBuilder {
-    /// Bilden när filmen sparas (1080p).
-    static let exportSize = CGSize(width: 1920, height: 1080)
+    /// Bilden när filmen sparas (1080p), liggande eller stående.
+    static func exportSize(_ p: Project) -> CGSize {
+        p.isPortrait ? CGSize(width: 1080, height: 1920) : CGSize(width: 1920, height: 1080)
+    }
     /// Bilden i förhandsvisningen (lättare för en äldre dator).
-    static let previewSize = CGSize(width: 1280, height: 720)
+    static func previewSize(_ p: Project) -> CGSize {
+        p.isPortrait ? CGSize(width: 720, height: 1280) : CGSize(width: 1280, height: 720)
+    }
+    /// Inställningen när filmen sparas. Stående får inte plats i 1920x1080-inställningen.
+    static func exportPreset(_ p: Project) -> String {
+        p.isPortrait ? AVAssetExportPresetHighestQuality : AVAssetExportPreset1920x1080
+    }
 
     /// Körs på en bakgrundskö. Bilder och texter bränns bara in när filmen sparas;
     /// i förhandsvisningen ritas de ovanpå i fönstret.
@@ -186,7 +195,7 @@ enum MovieBuilder {
         project.tidyClips()
         let total = project.duration
         if total < 0.05 { return nil }
-        let size = forExport ? exportSize : previewSize
+        let size = forExport ? exportSize(project) : previewSize(project)
         let totalTime = cm(total)
 
         let comp = AVMutableComposition()
@@ -267,7 +276,14 @@ enum MovieBuilder {
             if isCancelled() { throw CancelledError() }
             let asset = AVURLAsset(url: clip.mediaURL)
             keep.append(asset)
-            guard let sv = asset.tracks(withMediaType: .video).first else { continue }
+            // Svartvitt: bilden från den svartvita kopian (ljudet från originalet).
+            var vAsset: AVAsset = asset
+            if let bw = BlackWhite.activeFile(for: clip) {
+                let a = AVURLAsset(url: bw)
+                keep.append(a)
+                if !a.tracks(withMediaType: .video).isEmpty { vAsset = a }
+            }
+            guard let sv = vAsset.tracks(withMediaType: .video).first else { continue }
             var wanted = CMTimeRange(start: cm(clip.start), end: cm(clip.end))
             if clip.isReversed {
                 // I baklänges-kopian ligger slutet först: tiden t i originalet är T − t i kopian.
@@ -442,7 +458,7 @@ enum MovieBuilder {
             parent.addSublayer(timedLayer(img, rect: r, size: size, start: s.start, duration: s.duration))
         }
         for t in p.texts {
-            guard let img = Overlay.textImage(t, frameHeight: size.height) else { continue }
+            guard let img = Overlay.textImage(t, frame: size) else { continue }
             let w = CGFloat(img.width), h = CGFloat(img.height)
             let r = CGRect(x: CGFloat(t.x) * size.width - w / 2, y: CGFloat(t.y) * size.height - h / 2,
                            width: w, height: h)

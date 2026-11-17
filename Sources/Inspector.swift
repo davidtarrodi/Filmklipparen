@@ -14,7 +14,7 @@ struct Field<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
+            Text(title).font(.subheadline.bold()).foregroundColor(.secondary)
             content
         }
     }
@@ -39,13 +39,60 @@ struct PanelHeader: View {
     @EnvironmentObject var ed: Editor
     let kind: String
     let color: Color
+    var title: String = ""
+    var detail: String = ""
 
     var body: some View {
-        HStack {
-            Circle().fill(color).frame(width: 10, height: 10)
-            Text(kind).font(.caption.bold()).foregroundColor(.secondary)
-            Spacer()
-            Button("Klar") { ed.selection = nil }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Circle().fill(color).frame(width: 10, height: 10)
+                Text(kind).font(.caption.bold()).foregroundColor(.secondary)
+                Spacer()
+                Button("Klar") { ed.selection = nil }
+            }
+            if !title.isEmpty {
+                Text(title).font(.title3.bold()).lineLimit(2)
+            }
+            if !detail.isEmpty {
+                Text(detail).foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+/// En knapp som är på eller av (gul när den är på).
+struct Chip: View {
+    let title: String
+    var icon: String? = nil
+    let on: Bool
+    var minWidth: CGFloat = 52
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let i = icon { Image(systemName: i) }
+            Text(title)
+        }
+        .font(.callout.weight(.semibold))
+        .frame(minWidth: minWidth)
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(on ? Color.yellow : Color.white.opacity(0.1)))
+        .foregroundColor(on ? .black : .primary)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+    }
+}
+
+/// Förlopp när något görs om (baklänges, svartvitt, röst).
+struct Busy: View {
+    let text: String
+    let value: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ProgressView(value: value)
+            Text("\(text) \(Int(value * 100)) %").font(.caption).foregroundColor(.secondary)
         }
     }
 }
@@ -89,6 +136,7 @@ struct SidePanel: View {
                 }
             }
             .padding(16)
+            .frame(maxWidth: 380, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -114,73 +162,64 @@ struct ClipSettings: View {
     let clip: Clip
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PanelHeader(kind: "FILMKLIPP", color: Palette.filmColor(0))
-            Text(clip.name).font(.title3.bold()).lineLimit(2)
-            Text("Längd \(formatTime(clip.length))").foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            PanelHeader(kind: "FILMKLIPP", color: Palette.filmColor(for: clip.id),
+                        title: clip.name, detail: formatTime(clip.length))
 
+            Field("Effekter") {
+                HStack(spacing: 6) {
+                    Chip(title: "Baklänges", icon: "backward.fill", on: clip.isReversed) {
+                        ed.toggleReverse(clip.id)
+                    }
+                    Chip(title: "Svartvitt", icon: "circle.lefthalf.fill", on: clip.blackWhite == true) {
+                        ed.setBlackWhite(clip.id, clip.blackWhite != true)
+                    }
+                }
+                if let f = ed.reversing[clip.id] { Busy(text: "Vänder klippet …", value: f) }
+                if let f = ed.blackWhiting[clip.id] { Busy(text: "Gör svartvitt …", value: f) }
+            }
             Field("Hastighet") {
                 SpeedButtons(rate: clip.rate) { ed.setClipSpeed(clip.id, $0) }
-                Text(clip.rate < 0.999 ? "Slowmotion: klippet blir längre" :
-                        clip.rate > 1.001 ? "Snabbare: klippet blir kortare" : "Vanlig hastighet")
-                    .font(.caption).foregroundColor(.secondary)
             }
             Field("Röst") {
                 if let f = ed.voicing[clip.id] {
-                    ProgressView(value: f)
-                    Text("Gör om rösten … \(Int(f * 100)) %").font(.caption).foregroundColor(.secondary)
+                    Busy(text: "Gör om rösten …", value: f)
                 } else {
                     VoiceButtons(cents: clip.pitch ?? 0) { ed.setClipVoice(clip.id, $0) }
                 }
             }
-            Field("Baklänges") {
-                if let f = ed.reversing[clip.id] {
-                    ProgressView(value: f)
-                    Text("Vänder klippet … \(Int(f * 100)) %").font(.caption).foregroundColor(.secondary)
-                } else {
-                    Button { ed.toggleReverse(clip.id) } label: {
-                        Label(clip.isReversed ? "Spela framlänges igen" : "Spela baklänges",
-                              systemImage: clip.isReversed ? "forward.fill" : "backward.fill")
-                    }
-                }
-            }
-            if clip.isReversed {
-                // Baklänges: början är slutet i originalfilmen.
-                let d = clip.sourceDuration
-                Field("Börjar") {
-                    Slider(value: Binding(get: { d - clip.end }, set: { ed.setClipEnd(clip.id, d - $0) }),
-                           in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
-                }
-                Field("Slutar") {
-                    Slider(value: Binding(get: { d - clip.start }, set: { ed.setClipStart(clip.id, d - $0) }),
-                           in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
-                }
-            } else {
-                Field("Börjar") {
-                    Slider(value: Binding(get: { clip.start }, set: { ed.setClipStart(clip.id, $0) }),
-                           in: 0...max(0.3, clip.sourceDuration),
-                           onEditingChanged: { ed.liveEditing($0) })
-                }
-                Field("Slutar") {
-                    Slider(value: Binding(get: { clip.end }, set: { ed.setClipEnd(clip.id, $0) }),
-                           in: 0...max(0.3, clip.sourceDuration),
-                           onEditingChanged: { ed.liveEditing($0) })
-                }
-            }
-            Text("Du kan också dra i klippets kanter i tidslinjen. Dra klippet åt sidan för att få svart före eller efter. Klippen efter följer med.")
-                .font(.caption).foregroundColor(.secondary)
-            Field("Ljud i klippet") {
+            Field("Ljud") {
                 VolumeSlider(value: clip.volume) { ed.setClipVolume(clip.id, $0) }
             }
-            Field("Flytta") {
-                HStack {
-                    Button { ed.moveSelectedClip(-1) } label: { Label("Tidigare", systemImage: "arrow.left") }
-                    Button { ed.moveSelectedClip(1) } label: { Label("Senare", systemImage: "arrow.right") }
-                }
+            Field("Början och slut") {
+                trimSliders
             }
-            DeleteButton(title: "Ta bort klippet")
+            HStack {
+                Button { ed.moveSelectedClip(-1) } label: { Image(systemName: "arrow.left") }
+                    .help("Byt plats med klippet före")
+                Button { ed.moveSelectedClip(1) } label: { Image(systemName: "arrow.right") }
+                    .help("Byt plats med klippet efter")
+                Spacer()
+                DeleteButton(title: "Ta bort")
+            }
         }
         .controlSize(.large)
+    }
+
+    @ViewBuilder private var trimSliders: some View {
+        if clip.isReversed {
+            // Baklänges: början är slutet i originalfilmen.
+            let d = clip.sourceDuration
+            Slider(value: Binding(get: { d - clip.end }, set: { ed.setClipEnd(clip.id, d - $0) }),
+                   in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
+            Slider(value: Binding(get: { d - clip.start }, set: { ed.setClipStart(clip.id, d - $0) }),
+                   in: 0...max(0.3, d), onEditingChanged: { ed.liveEditing($0) })
+        } else {
+            Slider(value: Binding(get: { clip.start }, set: { ed.setClipStart(clip.id, $0) }),
+                   in: 0...max(0.3, clip.sourceDuration), onEditingChanged: { ed.liveEditing($0) })
+            Slider(value: Binding(get: { clip.end }, set: { ed.setClipEnd(clip.id, $0) }),
+                   in: 0...max(0.3, clip.sourceDuration), onEditingChanged: { ed.liveEditing($0) })
+        }
     }
 }
 
@@ -189,19 +228,13 @@ struct StillSettings: View {
     let item: StillItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PanelHeader(kind: "BILD", color: Palette.still)
-            HStack(spacing: 10) {
-                if let img = ed.stillPreview(item.path) {
-                    Image(nsImage: img).resizable().aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 80, maxHeight: 60)
-                        .cornerRadius(4)
-                }
-                Text(item.name).font(.title3.bold()).lineLimit(2)
+        VStack(alignment: .leading, spacing: 18) {
+            PanelHeader(kind: "BILD", color: Palette.still, title: item.name)
+            if let img = ed.stillPreview(item.path) {
+                Image(nsImage: img).resizable().aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 120, maxHeight: 80)
+                    .cornerRadius(4)
             }
-            Text("Dra bilden i rutan för att flytta den. Dra i det gula hörnet för att ändra storlek.")
-                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
-
             Field("Storlek") {
                 Slider(value: Binding(get: { item.scale }, set: { v in ed.updateStill(item.id) { $0.scale = v } }),
                        in: 0.05...3, onEditingChanged: { ed.liveEditing($0) })
@@ -209,15 +242,14 @@ struct StillSettings: View {
                     Button("Hela bilden") {
                         ed.updateStill(item.id) { $0.scale = 1; $0.x = 0.5; $0.y = 0.5 }
                     }
-                    .help("Hela bilden syns, i mitten")
                     Button("Fyll rutan") {
+                        let f = ed.project.aspect
                         ed.updateStill(item.id) {
-                            $0.scale = Overlay.coverScale(aspect: $0.aspect); $0.x = 0.5; $0.y = 0.5
+                            $0.scale = Overlay.coverScale(aspect: $0.aspect, frameAspect: f); $0.x = 0.5; $0.y = 0.5
                         }
                     }
-                    .help("Bilden täcker hela rutan (kanterna kan skäras bort)")
+                    Button("Mitten") { ed.updateStill(item.id) { $0.x = 0.5; $0.y = 0.5 } }
                 }
-                Button("Lägg i mitten") { ed.updateStill(item.id) { $0.x = 0.5; $0.y = 0.5 } }
             }
             Field("Visas i") {
                 DurationSlider(duration: item.duration) { ed.resizeItem(\.stills, item.id, edge: .right, to: item.start + $0) }
@@ -233,16 +265,14 @@ struct TextSettings: View {
     let item: TextItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             PanelHeader(kind: "TEXT", color: Palette.text)
-            Field("Text") {
-                TextEditor(text: Binding(get: { item.text },
-                                         set: { v in ed.updateText(item.id, typing: true) { $0.text = v } }))
-                    .font(.title3)
-                    .frame(height: 70)
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.5)))
-            }
-            Field("Typsnitt") {
+            TextEditor(text: Binding(get: { item.text },
+                                     set: { v in ed.updateText(item.id, typing: true) { $0.text = v } }))
+                .font(.title3)
+                .frame(height: 70)
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.secondary.opacity(0.5)))
+            HStack {
                 Picker("", selection: Binding(get: { item.font },
                                               set: { v in ed.updateText(item.id) { $0.font = v } })) {
                     ForEach(TextStyle.fonts, id: \.self) { f in
@@ -251,8 +281,8 @@ struct TextSettings: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .labelsHidden()
-                Toggle("Fet stil", isOn: Binding(get: { item.bold },
-                                                 set: { v in ed.updateText(item.id) { $0.bold = v } }))
+                Toggle("Fet", isOn: Binding(get: { item.bold },
+                                            set: { v in ed.updateText(item.id) { $0.bold = v } }))
             }
             Field("Storlek") {
                 Slider(value: Binding(get: { item.size }, set: { v in ed.updateText(item.id) { $0.size = v } }),
@@ -262,8 +292,6 @@ struct TextSettings: View {
                 ColorRow(selected: item.color) { c in ed.updateText(item.id) { $0.color = c } }
             }
             Field("Placering") {
-                Text("Dra texten i rutan dit du vill ha den.")
-                    .font(.caption).foregroundColor(.secondary)
                 HStack {
                     Button("Uppe") { ed.updateText(item.id) { $0.x = 0.5; $0.y = 0.14 } }
                     Button("Mitten") { ed.updateText(item.id) { $0.x = 0.5; $0.y = 0.5 } }
@@ -304,12 +332,8 @@ struct SoundSettings: View {
     let item: SoundItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PanelHeader(kind: "LJUDEFFEKT", color: Palette.sound)
-            Text(item.name).font(.title3.bold()).lineLimit(2)
-            Text("Längd \(formatTime(item.duration))").foregroundColor(.secondary)
-            Text("Dra effekten i tidslinjen dit den ska höras. Dra i kanterna för att korta den.")
-                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 18) {
+            PanelHeader(kind: "LJUDEFFEKT", color: Palette.sound, title: item.name, detail: formatTime(item.duration))
             Field("Ljudnivå") {
                 VolumeSlider(value: item.volume) { v in ed.updateAudio(\.sounds, item.id) { $0.volume = max(0, min(1, v)) } }
             }
@@ -324,12 +348,9 @@ struct MusicSettings: View {
     let item: SoundItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            PanelHeader(kind: "MUSIK", color: Palette.music)
-            Text(item.name).font(.title3.bold()).lineLimit(2)
-            Text("Längd \(formatTime(item.duration)) av \(formatTime(item.sourceDuration))").foregroundColor(.secondary)
-            Text("Dra låten i tidslinjen dit den ska höras. Dra i kanterna för att korta den. Den tonas ut på slutet.")
-                .font(.caption).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 18) {
+            PanelHeader(kind: "MUSIK", color: Palette.music, title: item.name,
+                        detail: "\(formatTime(item.duration)) av \(formatTime(item.sourceDuration))")
             Field("Ljudnivå") {
                 VolumeSlider(value: item.volume) { v in ed.updateAudio(\.music, item.id) { $0.volume = max(0, min(1, v)) } }
             }
@@ -347,43 +368,38 @@ struct MovieSettings: View {
 
     var body: some View {
         let p = ed.project
-        VStack(alignment: .leading, spacing: 16) {
-            Text("HELA FILMEN").font(.caption.bold()).foregroundColor(.secondary)
-            Text(formatTime(p.duration)).font(.title2.bold())
+        VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(p.clips.count) filmklipp · \(p.stills.count) bilder · \(p.texts.count) texter")
-                Text("\(p.sounds.count) ljudeffekter · \(p.music.count) musik")
+                Text("HELA FILMEN").font(.caption.bold()).foregroundColor(.secondary)
+                Text(formatTime(p.duration)).font(.title2.bold())
             }
-            .foregroundColor(.secondary)
-
+            Field("Format") {
+                HStack(spacing: 6) {
+                    Chip(title: "Liggande", icon: "rectangle", on: !p.isPortrait, minWidth: 90) { ed.setPortrait(false) }
+                    Chip(title: "Stående", icon: "rectangle.portrait", on: p.isPortrait, minWidth: 90) { ed.setPortrait(true) }
+                }
+            }
             if p.hasGaps {
                 Button { ed.closeGaps() } label: { Label("Ta bort svarta pauser", systemImage: "rectangle.compress.vertical") }
-                    .help("Skjuter ihop filmklippen så att de ligger direkt efter varandra")
             }
-
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Så här gör du").font(.headline)
-                tip("square.stack.3d.up", "Text ligger överst, sedan bild, sedan film")
-                tip("hand.tap", "Klicka på något för att ändra det")
-                tip("hand.draw", "Dra i tidslinjen för att flytta, dra i kanterna för att korta")
-                tip("rectangle.split.3x1", "Dra ett filmklipp åt sidan för att få svart paus")
-                tip("arrow.up.left.and.arrow.down.right", "Dra bilder och texter direkt i rutan")
-                tip("scissors", "K klipper där det gula strecket står")
-                tip("playpause", "Mellanslag spelar och pausar")
-                tip("arrow.left.and.right", "← → går en bild i taget")
-                tip("delete.left", "Backsteg tar bort det du valt")
-                tip("arrow.uturn.backward", "⌘Z ångrar, allt sparas av sig självt")
+            Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: 6) {
+                key("Mellanslag", "spela / pausa")
+                key("K", "klipp vid strecket")
+                key("← →", "en bild i taget")
+                key("⌫", "ta bort det valda")
+                key("⌘Z", "ångra")
             }
+            .font(.callout)
             .foregroundColor(.secondary)
         }
         .controlSize(.large)
     }
 
-    private func tip(_ icon: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon).frame(width: 20)
-            Text(text).fixedSize(horizontal: false, vertical: true)
+    private func key(_ k: String, _ text: String) -> some View {
+        HStack(spacing: 8) {
+            Text(k).font(.callout.bold()).frame(width: 90, alignment: .leading)
+            Text(text)
         }
     }
 }
@@ -408,16 +424,7 @@ struct SpeedButtons: View {
     }
 
     private func button(_ r: Double) -> some View {
-        let selected = abs(rate - r) < 0.001
-        return Text(SpeedButtons.label(r))
-            .font(.callout.weight(.semibold))
-            .frame(minWidth: 52)
-            .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6)
-                .fill(selected ? Color.yellow : Color.white.opacity(0.1)))
-            .foregroundColor(selected ? .black : .primary)
-            .contentShape(Rectangle())
-            .onTapGesture { set(r) }
+        Chip(title: SpeedButtons.label(r), on: abs(rate - r) < 0.001, minWidth: 40) { set(r) }
     }
 }
 
@@ -438,15 +445,6 @@ struct VoiceButtons: View {
     }
 
     private func button(_ name: String, _ c: Int) -> some View {
-        let selected = c == cents
-        return Text(name)
-            .font(.callout.weight(.semibold))
-            .frame(minWidth: 72)
-            .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6)
-                .fill(selected ? Color.yellow : Color.white.opacity(0.1)))
-            .foregroundColor(selected ? .black : .primary)
-            .contentShape(Rectangle())
-            .onTapGesture { set(c) }
+        Chip(title: name, on: c == cents, minWidth: 64) { set(c) }
     }
 }

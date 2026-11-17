@@ -25,13 +25,29 @@ struct ContentView: View {
         VStack(spacing: 0) {
             TopBar()
             Divider()
-            HStack(spacing: 0) {
-                PreviewArea()
+            if ed.project.isPortrait {
+                // Stående: bilden får hela höjden till vänster.
+                GeometryReader { g in
+                    HStack(spacing: 0) {
+                        PreviewArea()
+                            .frame(width: min(g.size.width * 0.45, max(260, (g.size.height - 90) * 9 / 16 + 28)))
+                        Divider()
+                        VStack(spacing: 0) {
+                            SidePanel().frame(maxWidth: .infinity, maxHeight: .infinity)
+                            Divider()
+                            TimelinePanel().frame(height: TL.panelHeight)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 0) {
+                    PreviewArea()
+                    Divider()
+                    SidePanel().frame(width: 300)
+                }
                 Divider()
-                SidePanel().frame(width: 300)
+                TimelinePanel().frame(height: TL.panelHeight)
             }
-            Divider()
-            TimelinePanel().frame(height: TL.panelHeight)
         }
         .background(Color(NSColor.windowBackgroundColor))
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -86,7 +102,7 @@ struct TopBar: View {
             Button { ed.addText() } label: { Label("Text", systemImage: "textformat") }
                 .help("Lägg till en text i textspåret, överst")
             Button { ed.toggleBrowser(.music) } label: { Label("Musik", systemImage: "music.note") }
-                .help("En låt under hela filmen")
+                .help("Lägg till musik där det gula strecket står")
             Button { ed.toggleBrowser(.sounds) } label: { Label("Ljudeffekt", systemImage: "speaker.wave.2") }
                 .help("Lägg till ljudeffekter där det gula strecket står")
             Divider().frame(height: 22)
@@ -152,7 +168,7 @@ struct PreviewArea: View {
                     OverlayLayer()
                 }
             }
-            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .aspectRatio(CGFloat(ed.project.aspect), contentMode: .fit)
             .clipped()
             .cornerRadius(8)
             Transport()
@@ -277,7 +293,7 @@ struct TextOverlay: View {
 
     var body: some View {
         if let img = ed.textPreview(item) {
-            let k = frame.height / Editor.textPreviewHeight
+            let k = frame.width / ed.textPreviewFrame.width
             let w = img.size.width * k, h = img.size.height * k
             let r = CGRect(x: CGFloat(item.x) * frame.width - w / 2, y: CGFloat(item.y) * frame.height - h / 2,
                            width: w, height: h)
