@@ -118,6 +118,54 @@ struct ExportTest {
             print("FEL: \(error)")
             exit(1)
         }
+        previewCheck(p, name: "med pauser")
+        // Som en gammal film: klippen direkt efter varandra, utan positioner.
+        var q = p
+        for i in q.clips.indices { q.clips[i].timelineStart = nil }
+        q.stills = []; q.texts = []
+        previewCheck(q, name: "utan pauser")
+        var r = q
+        r.ensurePositions()
+        previewCheck(r, name: "utan pauser, sparad")
+        if previewFailed { exit(1) }
+    }
+
+    static var previewFailed = false
+
+    final class Logger: NSObject, AVVideoCompositionValidationHandling {
+        var problems: [String] = []
+        func videoComposition(_ vc: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidValueForKey key: String) -> Bool { problems.append("ogiltigt värde \(key)"); return true }
+        func videoComposition(_ vc: AVVideoComposition, shouldContinueValidatingAfterFindingEmptyTimeRange r: CMTimeRange) -> Bool { problems.append("tomt tidsintervall \(r.start.seconds)–\(r.end.seconds)"); return true }
+        func videoComposition(_ vc: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidTimeRangeIn i: AVVideoCompositionInstructionProtocol) -> Bool { problems.append("ogiltig instruktion \(i.timeRange.start.seconds)–\(i.timeRange.end.seconds)"); return true }
+        func videoComposition(_ vc: AVVideoComposition, shouldContinueValidatingAfterFindingInvalidTrackIDIn i: AVVideoCompositionInstructionProtocol, layerInstruction l: AVVideoCompositionLayerInstruction, asset: AVAsset) -> Bool { problems.append("ogiltigt spår"); return true }
+    }
+
+    /// Förhandsvisningen (som i appen): giltig, och bild där klippen ligger.
+    static func previewCheck(_ p: Project, name: String) {
+        do {
+            guard let b = try MovieBuilder.build(p, forExport: false) else { print("FEL: förhandsvisning \(name) byggdes inte"); previewFailed = true; return }
+            let log = Logger()
+            let ok = b.videoComposition.isValid(for: b.composition, timeRange: CMTimeRange(start: .zero, duration: b.composition.duration), validationDelegate: log)
+            let ins = b.videoComposition.instructions.map { "\($0.timeRange.start.seconds)–\($0.timeRange.end.seconds)" }
+            print("förhandsvisning \(name): längd \(b.composition.duration.seconds), instruktioner \(ins), giltig \(ok) \(log.problems)")
+            for t in b.composition.tracks { print("  spår \(t.mediaType.rawValue): " + t.segments.map { "\($0.isEmpty ? "tom" : "bit") \(String(format: "%.3f", $0.timeMapping.target.start.seconds))+\(String(format: "%.3f", $0.timeMapping.target.duration.seconds))" }.joined(separator: ", ")) }
+            if !ok { previewFailed = true }
+            let gen = AVAssetImageGenerator(asset: b.composition)
+            gen.videoComposition = b.videoComposition
+            gen.requestedTimeToleranceBefore = .zero
+            gen.requestedTimeToleranceAfter = .zero
+            var q = p; q.tidyClips()
+            for c in q.clips {
+                let t = c.t0 + c.length / 2
+                let img = try gen.copyCGImage(at: cm(t), actualTime: nil)
+                let br = brightness(img)
+                print("  klipp vid \(String(format: "%.2f", t)) s: ljusstyrka \(Int(br))")
+                if br < 25 { print("FEL: svart bild i klippet (\(name))"); previewFailed = true }
+            }
+        } catch {
+            print("FEL: förhandsvisning \(name): \(error)")
+            previewFailed = true
+        }
     }
 
     /// Ungefärlig frekvens (Hz) från nollgenomgångar i vänster kanal, mitt i ljudet.
