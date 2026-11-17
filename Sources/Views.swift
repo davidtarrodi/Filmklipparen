@@ -195,11 +195,18 @@ struct Transport: View {
                     .frame(width: 44, height: 24)
             }
             .help("Spela / pausa (mellanslag)")
-            Text("\(formatTime(clock.time)) / \(formatTime(ed.project.duration))")
+            Text(ed.project.isPortrait ? formatTime(clock.time)
+                    : "\(formatTime(clock.time)) / \(formatTime(ed.project.duration))")
                 .font(.system(.title3, design: .monospaced))
-            Spacer()
+                .lineLimit(1)
+                .fixedSize()
+            Spacer(minLength: 4)
             Button { ed.splitAtPlayhead() } label: {
-                Label("Klipp här  (K)", systemImage: "scissors")
+                if ed.project.isPortrait {
+                    Image(systemName: "scissors").frame(width: 26, height: 22)
+                } else {
+                    Label("Klipp här  (K)", systemImage: "scissors")
+                }
             }
             .help("Delar det valda (eller filmklippet) där det gula strecket står")
         }
