@@ -127,6 +127,11 @@ struct ExportTest {
         var r = q
         r.ensurePositions()
         previewCheck(r, name: "utan pauser, sparad")
+        // Som riktiga mobilfilmer: filen sägs vara lite längre än bilden (ljudet är längre).
+        var m = r
+        for i in m.clips.indices { m.clips[i].sourceDuration += 0.04; m.clips[i].end += 0.04 }
+        m.ensurePositions(); for i in m.clips.indices { m.clips[i].timelineStart = nil }; m.ensurePositions()
+        previewCheck(m, name: "ljud längre än bild")
         if previewFailed { exit(1) }
     }
 

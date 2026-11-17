@@ -207,18 +207,23 @@ enum MovieBuilder {
         if let fa = fillAsset { keep.append(fa) }
         let fill = fillAsset?.tracks(withMediaType: .video).first
         func fillBlack(to target: CMTime) {
-            guard target - cursor > cm(1.0 / 60) else { return }
+            // Bara riktiga pauser (minst ett par bilder). Små skillnader, t.ex. när ljudet i en
+            // mobilfilm är en aning längre än bilden, får aldrig bli små svarta bitar.
+            guard target - cursor >= cm(0.1) else { return }
             aTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: target))
             if let fill = fill {
                 // Använd bara en bit mitt i den svarta filmen, så att den säkert finns.
                 let chunk = CMTimeMinimum(cm(1.5), fill.timeRange.duration - cm(0.2))
-                if chunk > cm(0.1) {
+                if chunk > cm(0.2) {
                     layer.setTransform(fitTransform(natural: fill.naturalSize, preferred: fill.preferredTransform,
                                                     into: size), at: cursor)
                     let begin = cursor
                     do {
                         while target - cursor > cm(0.001) {
-                            let len = CMTimeMinimum(chunk, target - cursor)
+                            var len = CMTimeMinimum(chunk, target - cursor)
+                            // Ingen pytteliten sista bit: dela hellre de två sista jämnt.
+                            let rest = target - cursor - len
+                            if rest > .zero && rest < cm(0.2) { len = CMTimeMultiplyByRatio(target - cursor, multiplier: 1, divisor: 2) }
                             try vTrack.insertTimeRange(CMTimeRange(start: fill.timeRange.start, duration: len),
                                                        of: fill, at: cursor)
                             cursor = cursor + len
@@ -237,8 +242,11 @@ enum MovieBuilder {
         }
 
         // Spår 1: filmklippen där de ligger i tidslinjen, med svart emellan.
+        var prevEnd = 0.0
         for clip in project.clips where clip.length > 0.05 {
-            fillBlack(to: cm(clip.t0))
+            // Svart bara där man faktiskt lagt en paus i tidslinjen.
+            if clip.t0 - prevEnd > 0.05 { fillBlack(to: cm(clip.t0)) }
+            prevEnd = clip.t1
             if isCancelled() { throw CancelledError() }
             let asset = AVURLAsset(url: clip.mediaURL)
             keep.append(asset)
@@ -335,6 +343,11 @@ enum MovieBuilder {
         try audioLane(project.sounds, what: "Ljudeffekten", fadeOut: 0)
 
         let instruction = AVMutableVideoCompositionInstruction()
+        // Bilden måste räcka hela filmen, annars blir förhandsvisningen svart.
+        if comp.duration - cursor > .zero {
+            vTrack.insertEmptyTimeRange(CMTimeRange(start: cursor, end: comp.duration))
+            cursor = comp.duration
+        }
         instruction.timeRange = CMTimeRange(start: .zero, duration: cursor)
         instruction.layerInstructions = [layer]
 
