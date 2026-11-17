@@ -132,6 +132,10 @@ struct ExportTest {
         for i in m.clips.indices { m.clips[i].sourceDuration += 0.04; m.clips[i].end += 0.04 }
         m.ensurePositions(); for i in m.clips.indices { m.clips[i].timelineStart = nil }; m.ensurePositions()
         previewCheck(m, name: "ljud längre än bild")
+        // Ljudeffekt som fortsätter efter sista klippet: klippen ska synas, slutet vara svart.
+        var e = r
+        e.sounds.append(SoundItem(path: e.clips[0].path, sourceDuration: 4, start: e.filmDuration - 1, duration: 3))
+        previewCheck(e, name: "ljud efter sista klippet", blackAt: e.filmDuration + 1)
         if previewFailed { exit(1) }
     }
 
@@ -146,7 +150,7 @@ struct ExportTest {
     }
 
     /// Förhandsvisningen (som i appen): giltig, och bild där klippen ligger.
-    static func previewCheck(_ p: Project, name: String) {
+    static func previewCheck(_ p: Project, name: String, blackAt: Double? = nil) {
         do {
             guard let b = try MovieBuilder.build(p, forExport: false) else { print("FEL: förhandsvisning \(name) byggdes inte"); previewFailed = true; return }
             let log = Logger()
@@ -166,6 +170,11 @@ struct ExportTest {
                 let br = brightness(img)
                 print("  klipp vid \(String(format: "%.2f", t)) s: ljusstyrka \(Int(br))")
                 if br < 25 { print("FEL: svart bild i klippet (\(name))"); previewFailed = true }
+            }
+            if let t = blackAt {
+                let br = brightness(try gen.copyCGImage(at: cm(t), actualTime: nil))
+                print("  efter klippen vid \(String(format: "%.2f", t)) s: ljusstyrka \(Int(br))")
+                if br > 25 { print("FEL: inte svart efter klippen (\(name))"); previewFailed = true }
             }
         } catch {
             print("FEL: förhandsvisning \(name): \(error)")

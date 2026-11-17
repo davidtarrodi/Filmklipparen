@@ -167,7 +167,7 @@ struct ClipSettings: View {
                            onEditingChanged: { ed.liveEditing($0) })
                 }
             }
-            Text("Du kan också dra i klippets kanter i tidslinjen. Dra klippet åt sidan för att få svart före eller efter.")
+            Text("Du kan också dra i klippets kanter i tidslinjen. Dra klippet åt sidan för att få svart före eller efter. Klippen efter följer med.")
                 .font(.caption).foregroundColor(.secondary)
             Field("Ljud i klippet") {
                 VolumeSlider(value: clip.volume) { ed.setClipVolume(clip.id, $0) }

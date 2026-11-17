@@ -203,9 +203,25 @@ enum MovieBuilder {
         defer { withExtendedLifetime(keep) {} }
 
         // Svart bild där det inte finns något filmklipp: före, mellan och efter klippen.
-        let fillAsset = BlackFiller.url().map { AVURLAsset(url: $0) }
-        if let fa = fillAsset { keep.append(fa) }
-        let fill = fillAsset?.tracks(withMediaType: .video).first
+        // Där läggs en bit av ett av filmens egna klipp, helt genomskinlig (bakgrunden är svart).
+        // Då används bara filer som datorn redan visat att den kan spela.
+        var fill: AVAssetTrack?
+        var fillIsHidden = false
+        for c in project.clips {
+            let a = AVURLAsset(url: c.mediaURL)
+            if let t = a.tracks(withMediaType: .video).first, t.timeRange.duration > cm(0.5) {
+                keep.append(a)
+                fill = t
+                fillIsHidden = true
+                break
+            }
+        }
+        if fill == nil, let u = BlackFiller.url() {
+            // Inga filmklipp alls: en egen svart film.
+            let a = AVURLAsset(url: u)
+            keep.append(a)
+            fill = a.tracks(withMediaType: .video).first
+        }
         func fillBlack(to target: CMTime) {
             // Bara riktiga pauser (minst ett par bilder). Små skillnader, t.ex. när ljudet i en
             // mobilfilm är en aning längre än bilden, får aldrig bli små svarta bitar.
@@ -217,6 +233,7 @@ enum MovieBuilder {
                 if chunk > cm(0.2) {
                     layer.setTransform(fitTransform(natural: fill.naturalSize, preferred: fill.preferredTransform,
                                                     into: size), at: cursor)
+                    if fillIsHidden { layer.setOpacity(0, at: cursor) }
                     let begin = cursor
                     do {
                         while target - cursor > cm(0.001) {
@@ -263,6 +280,7 @@ enum MovieBuilder {
             try attempt("Filmklippet \(clip.name)") { try vTrack.insertTimeRange(vRange, of: sv, at: cursor) }
             layer.setTransform(fitTransform(natural: sv.naturalSize, preferred: sv.preferredTransform, into: size),
                                at: cursor)
+            layer.setOpacity(1, at: cursor)
             var audioSource = asset.tracks(withMediaType: .audio).first
             if clip.isReversed {
                 // Baklänges ligger ljudet i en egen fil bredvid bilden.

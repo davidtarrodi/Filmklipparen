@@ -61,6 +61,7 @@ final class Editor: ObservableObject, @unchecked Sendable {
     private var toastWork: DispatchWorkItem?
     private var timeObserver: Any?
     private var statusObservation: NSKeyValueObservation?
+    private var itemObservation: NSKeyValueObservation?
     private var keyMonitor: Any?
     private var quitObserver: NSObjectProtocol?
     private var exportSession: AVAssetExportSession?
@@ -568,18 +569,50 @@ final class Editor: ObservableObject, @unchecked Sendable {
         seek(project.startTime(ofID: id))
     }
 
-    /// Dra ett filmklipp i tiden. Det fastnar mot strecket och kanter, och kan inte ligga omlott.
+    /// Dra ett filmklipp i tiden.
+    /// Åt höger följer alla klipp efter med. Åt vänster följer klippen som sitter ihop med det.
+    /// Det kan inte dras in i klippet före.
     func moveClip(_ id: UUID, to desired: Double) {
-        guard let c = project.clips.first(where: { $0.id == id }) else { return }
-        let len = c.length
-        var s = snap(desired, except: id)
-        if s == desired { s = snap(desired + len, except: id) - len }
-        let others = project.clips.filter { $0.id != id }.map { (start: $0.t0, end: $0.t1) }
-        let start = Lane.freeStart(desired: s, length: len, others: others)
+        var base = liveStart ?? project
+        base.tidyClips()
+        guard let i = base.clips.firstIndex(where: { $0.id == id }) else { return }
+        let c = base.clips[i]
+        let raw = desired - c.t0
+        // Klippen som åker med.
+        var group: [Int] = [i]
+        if raw > 0 {
+            group = Array(i..<base.clips.count)
+        } else {
+            var j = i + 1
+            while j < base.clips.count, base.clips[j].t0 - base.clips[j - 1].t1 < 0.05 {
+                group.append(j)
+                j += 1
+            }
+        }
+        let ids = Set(group.map { base.clips[$0].id })
+        // Fastna mot strecket och kanter (inte mot klippen som åker med).
+        let tolerance = 8 / pixelsPerSecond
+        var targets: [Double] = [0, time]
+        for x in base.clips where !ids.contains(x.id) { targets += [x.t0, x.t1] }
+        for x in base.stills { targets += [x.start, x.end] }
+        for x in base.texts { targets += [x.start, x.end] }
+        for x in base.sounds { targets += [x.start, x.end] }
+        for x in base.music { targets += [x.start, x.end] }
+        var delta = raw
+        var bestDist = tolerance
+        for edge in [c.t0, c.t1] {
+            for t in targets where abs(t - (edge + raw)) < bestDist {
+                bestDist = abs(t - (edge + raw))
+                delta = t - edge
+            }
+        }
+        let prevEnd = i > 0 ? base.clips[i - 1].t1 : 0
+        delta = max(delta, prevEnd - c.t0)
+        if raw > 0 { delta = max(delta, 0) }
         live { p in
-            guard let i = p.index(of: id) else { return }
-            p.clips[i].timelineStart = start
-            p.clips.sort { $0.t0 < $1.t0 }
+            p.clips = base.clips
+            for g in group { p.clips[g].timelineStart = base.clips[g].t0 + delta }
+            p.tidyClips()
         }
     }
 
@@ -1199,6 +1232,12 @@ final class Editor: ObservableObject, @unchecked Sendable {
             return
         }
         let item = AVPlayerItem(asset: b.composition)
+        itemObservation = item.observe(\.status, options: [.new]) { [weak self] it, _ in
+            guard it.status == .failed else { return }
+            let why = it.error?.localizedDescription ?? "okänt fel"
+            NSLog("Filmklipparen: förhandsvisningen gick inte: \(String(describing: it.error))")
+            DispatchQueue.main.async { self?.show("Förhandsvisningen gick inte att visa (\(why))") }
+        }
         item.videoComposition = b.videoComposition
         item.audioMix = b.audioMix
         // Snabbare eller långsammare ljud behåller tonhöjden.
